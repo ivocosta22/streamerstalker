@@ -21,7 +21,7 @@ const { logColor } = require('./utils/logger')
 logColor('cyan', '[SYSTEM] 👓 SurferStalker is starting...')
 
 
-const { twitch, discord, obs, chat } = require('./config/env')
+const { twitch, discord, obs, chat, streamer } = require('./config/env')
 const { getToken } = require('./integrations/twitch/twitchAPI')
 const songRequestClient = require('./integrations/player/songRequestClient')
 const obsController = require('./integrations/obs/obsController')
@@ -173,7 +173,6 @@ const commands = createCommands({
 
 registerTwitchRewards({ ComfyJS, botState, obsController, logColor })
 startTitleMonitor({ ComfyJS, botState, logColor, pingList })
-const GO_LIVE_DISCORD_CHANNEL_ID = '778428110365655060'
 let _discordClient = null
 
 startChatTimers({
@@ -184,11 +183,11 @@ startChatTimers({
   onGoLive: async () => {
     try {
       if (!_discordClient) return
-      const channel = _discordClient.channels.cache.get(GO_LIVE_DISCORD_CHANNEL_ID)
+      const channel = _discordClient.channels.cache.get(discord.goLiveChannelId)
       if (!channel) return
       const name = twitch.channelCaseSensitive
       await channel.send({
-        content: `Hey @everyone! ${name} is now live on Twitch and Kick. Check it out!\nhttps://twitch.tv/${twitch.channel}\nhttps://kick.com/surferkiller`,
+        content: `Hey @everyone! ${name} is now live on Twitch and Kick. Check it out!\nhttps://twitch.tv/${twitch.channel}\n${streamer.kickChannelUrl}`,
         allowedMentions: { parse: ['everyone'] }
       })
       logColor('green', '[DISCORD] Sent go-live notification')

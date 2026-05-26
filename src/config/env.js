@@ -77,6 +77,11 @@ module.exports = Object.freeze({
     userTokenEndpoint: requireEnv('TWITCH_USER_TOKEN_ENDPOINT')
   }),
 
+  streamer: Object.freeze({
+    kickChannelUrl: requireEnv('KICK_CHANNEL_URL'),
+    timezone: requireEnv('STREAMER_TIMEZONE')
+  }),
+
   twitchChannelPointsRewards: Object.freeze({
     songRequest: requireEnv('TWITCH_CHANNEL_POINTS_REWARD_SONG_REQUEST'),
     timeout: requireEnv('TWITCH_CHANNEL_POINTS_REWARD_TIMEOUT'),
@@ -89,7 +94,8 @@ module.exports = Object.freeze({
     botToken: requireEnv('DISCORD_BOT_TOKEN'),
     botId: requireEnv('DISCORD_BOT_ID'),
     serverId: requireEnv('DISCORD_SERVER_ID'),
-    communicationChannelId: requireEnv('DISCORD_TWITCH_CHANNEL_COMMUNICATION_ID')
+    communicationChannelId: requireEnv('DISCORD_TWITCH_CHANNEL_COMMUNICATION_ID'),
+    goLiveChannelId: requireEnv('DISCORD_GO_LIVE_CHANNEL_ID')
   }),
 
   obs: Object.freeze({

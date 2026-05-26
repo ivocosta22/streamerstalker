@@ -12,7 +12,7 @@
  * All commands operate using injected context.
  */
 const superfetch = require('node-superfetch')
-const { twitch } = require('../../config/env')
+const { twitch, streamer } = require('../../config/env')
 const { getToken, getUser, getUserCategory, getChannelInformation, sendChatAnnouncement } = require('./twitchAPI')
 const songRequestClient = require('../player/songRequestClient')
 
@@ -99,7 +99,7 @@ function createCommands(context) {
   // Simple Commands
   // ============================================================
 
-  const kickCommand = () => `https://kick.com/surferkiller`
+  const kickCommand = () => streamer.kickChannelUrl
 
   const playlistCommand = () => `Frenchcore: https://www.youtube.com/playlist?list=PLbRxpesByb8HUJGcLGDPmla296SDAS9td | Nostalgia: https://www.youtube.com/playlist?list=PLbRxpesByb8F8vh09GqN6siJS-S_yqQFB | Sextrance: https://www.youtube.com/playlist?list=PLbRxpesByb8EhNlUL7EKn5QAnyVudwIfG`
 
@@ -137,7 +137,7 @@ function createCommands(context) {
   }
 
   const timeCommand = () => {
-    const options = { timeZone: 'Europe/Lisbon', timeStyle: 'medium', hour12: false }
+    const options = { timeZone: streamer.timezone, timeStyle: 'medium', hour12: false }
     return `It's currently ${new Date().toLocaleTimeString(undefined, options)} in Surfer's timezone Sime`
   }
 
