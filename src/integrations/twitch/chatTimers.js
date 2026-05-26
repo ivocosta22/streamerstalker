@@ -31,7 +31,7 @@ function loadTimers() {
       }
     })
   } catch (err) {
-    _logColor('red', `[TIMERS] Failed to load timers.json: ${err.message}`)
+    _logColor('red', `[TWITCH] Failed to load timers.json: ${err.message}`)
   }
 }
 
@@ -60,7 +60,7 @@ function checkTimers() {
     timer.lastSent = now
 
     _say(msg)
-    _logColor('cyan', `[TIMERS] Sent timer "${timer.name}": ${msg}`)
+    _logColor('cyan', `[TWITCH] Sent timer "${timer.name}": ${msg}`)
   }
 }
 
@@ -81,9 +81,9 @@ async function announceGoLive() {
       message,
       color: 'blue'
     })
-    _logColor('green', `[TIMERS] Sent go-live announcement: ${message}`)
+    _logColor('green', `[TWITCH] Sent go-live announcement: ${message}`)
   } catch (err) {
-    _logColor('red', `[TIMERS] Failed to send go-live announcement: ${err?.message || err}`)
+    _logColor('red', `[TWITCH] Failed to send go-live announcement: ${err?.message || err}`)
   }
 }
 
@@ -95,11 +95,11 @@ function startChatTimers({ say, broadcasterId, moderatorId, pingList, logColor }
   _moderatorId = moderatorId
 
   loadTimers()
-  _logColor('green', `[TIMERS] Loaded ${timers.length} timer(s)`)
+  _logColor('green', `[TWITCH] Loaded ${timers.length} timer(s)`)
 
   fs.watch(TIMERS_PATH, () => {
     loadTimers()
-    _logColor('green', `[TIMERS] Reloaded ${timers.length} timer(s)`)
+    _logColor('green', `[TWITCH] Reloaded ${timers.length} timer(s)`)
   })
 
   setInterval(checkTimers, 15 * 1000)
