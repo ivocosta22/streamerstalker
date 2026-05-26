@@ -337,11 +337,17 @@ function startPollTimer() {
           const p = document.querySelector('#movie_player')
           const state = p?.getPlayerState() ?? -1
           const data = p?.getVideoData?.() ?? {}
-          ;({ state, title: data.title || null, videoId: data.video_id || null })
+          const vol = p?.getVolume() ?? -1
+          ;({ state, title: data.title || null, videoId: data.video_id || null, currentVolume: vol })
         `)
         if (info.state === 0) {
           playBackupPlaylist()
         } else if (info.videoId) {
+          if (info.currentVolume !== volume && info.currentVolume >= 0) {
+            await playerView.webContents.executeJavaScript(
+              `document.querySelector('#movie_player')?.setVolume(${volume})`
+            )
+          }
           const url = `https://www.youtube.com/watch?v=${info.videoId}`
           const changed = !backupCurrentTrack
             || backupCurrentTrack.videoId !== info.videoId
@@ -355,10 +361,16 @@ function startPollTimer() {
 
     if (!currentTrack || isPaused) return
     try {
-      const state = await playerView.webContents.executeJavaScript(
-        `document.querySelector('#movie_player')?.getPlayerState() ?? -1`
-      )
-      if (state === 0) playNext()
+      const info = await playerView.webContents.executeJavaScript(`
+        const p = document.querySelector('#movie_player')
+        ;({ state: p?.getPlayerState() ?? -1, currentVolume: p?.getVolume() ?? -1 })
+      `)
+      if (info.currentVolume !== volume && info.currentVolume >= 0) {
+        await playerView.webContents.executeJavaScript(
+          `document.querySelector('#movie_player')?.setVolume(${volume})`
+        )
+      }
+      if (info.state === 0) playNext()
     } catch {}
   }, 2000)
 }
