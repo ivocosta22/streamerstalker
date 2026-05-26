@@ -343,8 +343,10 @@ function startPollTimer() {
           playBackupPlaylist()
         } else if (info.videoId) {
           const url = `https://www.youtube.com/watch?v=${info.videoId}`
-          const changed = !backupCurrentTrack || backupCurrentTrack.videoId !== info.videoId
-          backupCurrentTrack = { title: info.title || info.videoId, url, videoId: info.videoId, requester: 'Backup Playlist' }
+          const changed = !backupCurrentTrack
+            || backupCurrentTrack.videoId !== info.videoId
+            || backupCurrentTrack.title !== info.title
+          backupCurrentTrack = { title: info.title || info.videoId, url, videoId: info.videoId, requester: null }
           if (changed) pushStatusToBot()
         }
       } catch {}

@@ -7,6 +7,7 @@ let ready = false
 let requestsEnabled = true
 let currentSong = null   // { title, url, requester } — pushed by player on track change
 let _logColor = () => {}
+let _onRequestsToggled = null
 let _reconnectDelay = RECONNECT_MIN_MS
 
 // FIFO queue of callbacks waiting for a WS response (enqueue ack)
@@ -45,8 +46,10 @@ function connect() {
       const msg = JSON.parse(event.data)
       if (msg.type === 'status') {
         if (typeof msg.requestsEnabled === 'boolean') {
+          const changed = requestsEnabled !== msg.requestsEnabled
           requestsEnabled = msg.requestsEnabled
           _logColor(requestsEnabled ? 'green' : 'yellow', `[PLAYER] Song requests ${requestsEnabled ? 'enabled' : 'disabled'} by player`)
+          if (changed && _onRequestsToggled) _onRequestsToggled(requestsEnabled)
         }
         if ('current' in msg) currentSong = msg.current
         return
@@ -122,8 +125,9 @@ function getCurrentSong() {
   return currentSong
 }
 
-function start(logColor) {
+function start(logColor, onRequestsToggled) {
   _logColor = logColor
+  _onRequestsToggled = onRequestsToggled || null
   connect()
 }
 

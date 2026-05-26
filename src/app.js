@@ -22,13 +22,14 @@ logColor('cyan', '[SYSTEM] 👓 SurferStalker is starting...')
 
 
 const { twitch, discord, obs, chat } = require('./config/env')
-const { sendChatAnnouncement, getToken } = require('./integrations/twitch/twitchAPI')
+const { getToken } = require('./integrations/twitch/twitchAPI')
 const songRequestClient = require('./integrations/player/songRequestClient')
 const obsController = require('./integrations/obs/obsController')
-const { createCommands, buildShoutoutMessage } = require('./integrations/twitch/twitchCommands')
+const { createCommands } = require('./integrations/twitch/twitchCommands')
 const { registerTwitchRewards } = require('./integrations/twitch/twitchRewards')
 const { startTitleMonitor } = require('./integrations/twitch/titleMonitor')
-const titleUpdatePingList = require('./config/titleUpdatePingList')
+const { startChatTimers, recordChatLine } = require('./integrations/twitch/chatTimers')
+const pingList = require('./config/titleUpdatePingList')
 const readline = require('readline')
 
 process.on('unhandledRejection', (reason) => {
@@ -54,7 +55,13 @@ async function startObs() {
 }
 startObs()
 getToken('user')
-songRequestClient.start(logColor)
+songRequestClient.start(logColor, (enabled) => {
+  const msg = enabled
+    ? 'Song requests are now enabled! Use !sr <YouTube URL> to request a song.'
+    : 'Song requests are now disabled.'
+  ComfyJS?.Say?.(msg)
+  obsController.setSourceVisibility('!srDisabled', !enabled)
+})
 
 // ============================================================
 // HTTP Keepalive Server
@@ -160,29 +167,20 @@ const commands = createCommands({
   twitchBotAPIClientID: twitch.botClientId,
   userCooldown,
   botState,
+  pingList,
   logColor
 })
 
 registerTwitchRewards({ ComfyJS, botState, obsController, logColor })
-startTitleMonitor({ ComfyJS, botState, logColor, pingUsers: titleUpdatePingList })
+startTitleMonitor({ ComfyJS, botState, logColor, pingList })
+startChatTimers({ say: (msg) => ComfyJS.Say(msg), broadcasterId: twitch.channelUserId, moderatorId: twitch.botUserId, pingList, logColor })
 ComfyJS.onRaid = async (user, viewers) => {
   try {
     const raider = user?.trim()
     if (!raider) return
 
-    const shoutoutMessage = await buildShoutoutMessage(raider)
-    if (!shoutoutMessage) return
-
     logColor('yellow', `[TWITCH] Raid received from ${raider} with ${viewers ?? 'unknown'} viewer(s).`)
-
     ComfyJS.Say(`!so ${raider}`)
-    await delay(600)
-    await sendChatAnnouncement({
-      broadcasterId: twitch.channelUserId,
-      moderatorId: twitch.botUserId,
-      message: shoutoutMessage,
-      color: 'blue'
-    })
   } catch (error) {
     logColor('red', `[TWITCH] Raid shoutout error: ${error?.message || error}`)
   }
@@ -225,6 +223,7 @@ twitchChatClient.on('message', async (target, context, msg, self) => {
   }
 
   logColor('default', `[TWITCH] ${botState.commandCaller}: ${msg}`)
+  recordChatLine()
 
   const message = msg.trim()
   if (!message.startsWith(twitch.prefix)) return

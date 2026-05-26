@@ -13,7 +13,7 @@
  */
 const superfetch = require('node-superfetch')
 const { twitch } = require('../../config/env')
-const { getToken, getUser, getUserCategory, getChannelInformation } = require('./twitchAPI')
+const { getToken, getUser, getUserCategory, getChannelInformation, sendChatAnnouncement } = require('./twitchAPI')
 const songRequestClient = require('../player/songRequestClient')
 
 const WITHER_COOLDOWN_MS = 300_000
@@ -84,6 +84,7 @@ function createCommands(context) {
     twitchBotAPIClientID,
     userCooldown,
     botState,
+    pingList,
     logColor = (...args) => console.log(...args)
   } = context
 
@@ -144,7 +145,15 @@ function createCommands(context) {
   // Async Commands (Twitch API / ComfyJS)
   // ============================================================
   const soCommand = async (username) => {
-    return buildShoutoutMessage(username)
+    const message = await buildShoutoutMessage(username)
+    if (!message) return null
+    await sendChatAnnouncement({
+      broadcasterId: twitchChannelUserID,
+      moderatorId: twitchBotUserID,
+      message,
+      color: 'blue'
+    })
+    return null
   }
 
   const categoryCommand = async () => {
@@ -258,6 +267,7 @@ function createCommands(context) {
   const songCommand = () => {
     const song = songRequestClient.getCurrentSong()
     if (!song) return 'No song is currently playing.'
+    if (!song.requester) return `Current song: ${song.title} - ${song.url}`
     return `Current song: ${song.title} - ${song.url} | Requested by @${song.requester}`
   }
 
@@ -269,6 +279,14 @@ function createCommands(context) {
   const statusOBSCommand = async () => {
     if (botState.commandCaller !== twitchChannelCaseSensitive) return
     ComfyJS?.Say?.(`${obsController.getStatus()}`)
+  }
+
+  const pingmeCommand = () => {
+    const user = botState.commandCaller
+    const added = pingList.toggle(user)
+    return added
+      ? `@${user} you've been added to the ping list! You'll be pinged when the title updates or the stream goes live.`
+      : `@${user} you've been removed from the ping list.`
   }
 
   // ============================================================
@@ -307,7 +325,8 @@ function createCommands(context) {
     { name: 'category', response: categoryCommand },
     { name: 'title', response: titleCommand },
     { name: 'obsreconnect', response: reconnectOBSCommand },
-    { name: 'obsstatus', response: statusOBSCommand }
+    { name: 'obsstatus', response: statusOBSCommand },
+    { name: 'pingme', response: pingmeCommand }
   ])
 }
 

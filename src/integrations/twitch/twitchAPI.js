@@ -402,6 +402,19 @@ async function getNewAuthToken() {
   }
 }
 
+async function isStreamLive(broadcasterId) {
+  try {
+    const token = await getToken('app')
+    if (!token) return false
+    const url = `${twitch.APIEndpoint}/streams?user_id=${encodeURIComponent(broadcasterId)}`
+    const res = await superfetch.get(url).set(getApiHeaders(token))
+    if (res.status !== 200) return false
+    return (res.body?.data?.length ?? 0) > 0
+  } catch {
+    return false
+  }
+}
+
 // ============================================================
 // Module Exports
 // ============================================================
@@ -410,5 +423,6 @@ module.exports = Object.freeze({
   getUser,
   getUserCategory,
   getChannelInformation,
-  sendChatAnnouncement
+  sendChatAnnouncement,
+  isStreamLive
 })

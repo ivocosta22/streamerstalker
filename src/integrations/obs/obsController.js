@@ -276,6 +276,21 @@ class OBSController {
     }
   }
 
+  async setSourceVisibility(sourceName, enabled) {
+    if (!this.connected) return
+    for (const sceneName of this.OBS_SCENES) {
+      try {
+        const item = await this.getSceneItem(sceneName, sourceName)
+        if (!item) continue
+        await this.obs.call('SetSceneItemEnabled', {
+          sceneName,
+          sceneItemId: item.sceneItemId,
+          sceneItemEnabled: enabled
+        })
+      } catch {}
+    }
+  }
+
   // ============================================================
   // Camera Control
   // ============================================================

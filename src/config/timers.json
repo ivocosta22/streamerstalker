@@ -1,0 +1,82 @@
+[
+  {
+    "name": "Wither",
+    "enabled": true,
+    "onlineIntervalMinutes": 10,
+    "offlineIntervalMinutes": 30,
+    "chatLinesRequired": 10,
+    "messages": [
+      "You can timeout people if they're not being nice. Type !wither [username]"
+    ]
+  },
+  {
+    "name": "Raffle",
+    "enabled": true,
+    "onlineIntervalMinutes": 15,
+    "offlineIntervalMinutes": 30,
+    "chatLinesRequired": 20,
+    "messages": [
+      "Want to win FREE STACKS?! Tell Surfer to do a raffle! Surely you'll win Clueless"
+    ]
+  },
+  {
+    "name": "Gamble",
+    "enabled": true,
+    "onlineIntervalMinutes": 20,
+    "offlineIntervalMinutes": 25,
+    "chatLinesRequired": 20,
+    "messages": [
+      "Do !gamble, !slots or !duel to get stacks! Stonks"
+    ]
+  },
+  {
+    "name": "SynapseVideos",
+    "enabled": true,
+    "onlineIntervalMinutes": 30,
+    "offlineIntervalMinutes": 30,
+    "chatLinesRequired": 20,
+    "messages": [
+      "Surfer's Pentas in Synapse's channel Sheesh : https://youtu.be/qkZ2sukhVRU?t=266 | https://youtu.be/PStKAXach6Y?t=255 | https://youtu.be/lly9zvmxLF0?t=579 | https://youtu.be/VrwY4r15Ldo?t=435 | https://youtu.be/Qwm2O8OnS0M?t=189"
+    ]
+  },
+  {
+    "name": "SongRequest",
+    "enabled": true,
+    "onlineIntervalMinutes": 15,
+    "offlineIntervalMinutes": 30,
+    "chatLinesRequired": 10,
+    "messages": [
+      "Request songs by typing !sr [YT Link] . It's free but try to keep it under 10min :)"
+    ]
+  },
+  {
+    "name": "PlaySound",
+    "enabled": true,
+    "onlineIntervalMinutes": 15,
+    "offlineIntervalMinutes": 30,
+    "chatLinesRequired": 20,
+    "messages": [
+      "Do !playsound to play sounds on stream! Do !#showemote + emote to show an emote on stream!"
+    ]
+  },
+  {
+    "name": "7TV",
+    "enabled": true,
+    "onlineIntervalMinutes": 15,
+    "offlineIntervalMinutes": 30,
+    "chatLinesRequired": 20,
+    "messages": [
+      "PepoG Sime ok <- Can't see these emotes? Get 7TV here - https://7tv.app/"
+    ]
+  },
+  {
+    "name": "PingList",
+    "enabled": true,
+    "onlineIntervalMinutes": 15,
+    "offlineIntervalMinutes": 30,
+    "chatLinesRequired": 20,
+    "messages": [
+      "Are you a Chatterino user? Do you want to get pinged when the stream's title updates or when the stream goes live? Add yourself to the pinged users list by doing !pingme. You can opt out by doing the same command."
+    ]
+  }
+]

@@ -13,25 +13,6 @@ function normalizeTitle(title) {
   return typeof title === 'string' ? title.trim() : ''
 }
 
-function normalizePingUsers(users) {
-  if (!Array.isArray(users)) return []
-
-  const seen = new Set()
-  const normalizedUsers = []
-
-  for (const user of users) {
-    if (typeof user !== 'string') continue
-
-    const normalizedUser = user.trim().replace(/^@+/, '').toLowerCase()
-    if (!normalizedUser || seen.has(normalizedUser)) continue
-
-    seen.add(normalizedUser)
-    normalizedUsers.push(normalizedUser)
-  }
-
-  return normalizedUsers
-}
-
 function buildTitleChangeMessage(title, pingUsers) {
   const mentionList = pingUsers.map(user => `@${user}`).join(' ')
 
@@ -42,12 +23,11 @@ function buildTitleChangeMessage(title, pingUsers) {
   return `The stream title was changed: ${title} | Pinging: ${mentionList}`
 }
 
-function startTitleMonitor({ ComfyJS, botState, logColor, pingUsers }) {
+function startTitleMonitor({ ComfyJS, botState, logColor, pingList }) {
   if (!ComfyJS) throw new Error('startTitleMonitor requires ComfyJS')
   if (!botState) throw new Error('startTitleMonitor requires botState')
   if (!logColor) throw new Error('startTitleMonitor requires logColor')
 
-  const normalizedPingUsers = normalizePingUsers(pingUsers)
   let isChecking = false
 
   async function checkChannelTitle() {
@@ -70,7 +50,7 @@ function startTitleMonitor({ ComfyJS, botState, logColor, pingUsers }) {
 
       botState.lastKnownStreamTitle = currentTitle
 
-      const message = buildTitleChangeMessage(currentTitle, normalizedPingUsers)
+      const message = buildTitleChangeMessage(currentTitle, pingList.getAll())
       ComfyJS.Say(message)
       logColor('green', `[TWITCH] Title change announced: ${currentTitle}`)
     } catch (error) {
