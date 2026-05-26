@@ -5,8 +5,10 @@ const { isStreamLive, getChannelInformation, sendChatAnnouncement } = require('.
 const TIMERS_PATH = path.resolve(__dirname, '../../config/timers.json')
 const CHAT_COUNT_WINDOW_MS = 5 * 60 * 1000
 const LIVE_CHECK_INTERVAL_MS = 60 * 1000
+const GLOBAL_TIMER_COOLDOWN_MS = 5 * 60 * 1000
 
 let timers = []
+let lastGlobalSend = 0
 let chatTimestamps = []
 let isLive = false
 let wasLive = false
@@ -50,19 +52,27 @@ function checkTimers() {
   const now = Date.now()
   const lines = recentChatLines()
 
+  if (now - lastGlobalSend < GLOBAL_TIMER_COOLDOWN_MS) return
+
+  const eligible = []
   for (const timer of timers) {
     const intervalMs = (isLive ? timer.onlineIntervalMinutes : timer.offlineIntervalMinutes) * 60 * 1000
     if (intervalMs <= 0) continue
     if (now - timer.lastSent < intervalMs) continue
     if (lines < (timer.chatLinesRequired || 0)) continue
-
-    const msg = timer.messages[timer.messageIndex % timer.messages.length]
-    timer.messageIndex = (timer.messageIndex + 1) % timer.messages.length
-    timer.lastSent = now
-
-    _say(msg)
-    _logColor('cyan', `[TWITCH] Sent timer "${timer.name}": ${msg}`)
+    eligible.push(timer)
   }
+
+  if (eligible.length === 0) return
+
+  const timer = eligible[Math.floor(Math.random() * eligible.length)]
+  const msg = timer.messages[timer.messageIndex % timer.messages.length]
+  timer.messageIndex = (timer.messageIndex + 1) % timer.messages.length
+  timer.lastSent = now
+  lastGlobalSend = now
+
+  _say(msg)
+  _logColor('cyan', `[TIMERS] Sent timer "${timer.name}": ${msg}`)
 }
 
 async function announceGoLive() {
