@@ -173,7 +173,31 @@ const commands = createCommands({
 
 registerTwitchRewards({ ComfyJS, botState, obsController, logColor })
 startTitleMonitor({ ComfyJS, botState, logColor, pingList })
-startChatTimers({ say: (msg) => ComfyJS.Say(msg), broadcasterId: twitch.channelUserId, moderatorId: twitch.botUserId, pingList, logColor })
+const GO_LIVE_DISCORD_CHANNEL_ID = '778428110365655060'
+let _discordClient = null
+
+startChatTimers({
+  say: (msg) => ComfyJS.Say(msg),
+  broadcasterId: twitch.channelUserId,
+  moderatorId: twitch.botUserId,
+  pingList,
+  onGoLive: async () => {
+    try {
+      if (!_discordClient) return
+      const channel = _discordClient.channels.cache.get(GO_LIVE_DISCORD_CHANNEL_ID)
+      if (!channel) return
+      const name = twitch.channelCaseSensitive
+      await channel.send({
+        content: `Hey @everyone! ${name} is now live on Twitch and Kick. Check it out!\nhttps://twitch.tv/${twitch.channel}\nhttps://kick.com/surferkiller`,
+        allowedMentions: { parse: ['everyone'] }
+      })
+      logColor('green', '[DISCORD] Sent go-live notification')
+    } catch (err) {
+      logColor('red', `[DISCORD] Failed to send go-live notification: ${err?.message || err}`)
+    }
+  },
+  logColor
+})
 ComfyJS.onRaid = async (user, viewers) => {
   try {
     const raider = user?.trim()
@@ -269,7 +293,7 @@ twitchChatClient.connect().catch(err => {
 // ============================================================
 const { Client, GatewayIntentBits, Partials, ActivityType, PermissionsBitField } = require('discord.js')
 
-const discordClient = new Client({
+const discordClient = _discordClient = new Client({
   intents: [
     GatewayIntentBits.DirectMessages,
     GatewayIntentBits.Guilds,

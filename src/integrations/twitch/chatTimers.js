@@ -15,6 +15,7 @@ let _logColor = () => {}
 let _broadcasterId = null
 let _moderatorId = null
 let _pingList = null
+let _onGoLive = null
 
 function loadTimers() {
   try {
@@ -87,10 +88,11 @@ async function announceGoLive() {
   }
 }
 
-function startChatTimers({ say, broadcasterId, moderatorId, pingList, logColor }) {
+function startChatTimers({ say, broadcasterId, moderatorId, pingList, onGoLive, logColor }) {
   _say = say
   _logColor = logColor
   _pingList = pingList
+  _onGoLive = onGoLive || null
   _broadcasterId = broadcasterId
   _moderatorId = moderatorId
 
@@ -107,7 +109,10 @@ function startChatTimers({ say, broadcasterId, moderatorId, pingList, logColor }
   async function pollLiveStatus() {
     try {
       const live = await isStreamLive(broadcasterId)
-      if (live && !wasLive) announceGoLive()
+      if (live && !wasLive) {
+        announceGoLive()
+        if (_onGoLive) _onGoLive()
+      }
       wasLive = live
       isLive = live
     } catch {}
