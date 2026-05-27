@@ -24,6 +24,7 @@ let volume = 100
 let backupPlaylistUrl = ''
 let backupMode = false
 let backupCurrentTrack = null
+let backupStoppedAt = 0
 
 // Keep a reference to the active bot socket so we can push status updates
 let botSocket = null
@@ -166,6 +167,7 @@ function playNext() {
     } else {
       backupMode = false
       backupCurrentTrack = null
+      backupStoppedAt = 0
       broadcast()
       playerView.webContents.loadURL('about:blank')
     }
@@ -174,6 +176,7 @@ function playNext() {
 
   backupMode = false
   backupCurrentTrack = null
+  backupStoppedAt = 0
   currentTrack = queue.shift()
   isPaused = false
   broadcast()
@@ -238,6 +241,8 @@ async function getPlaylistSeedVideoId(listId) {
 
 async function playBackupPlaylist() {
   backupMode = true
+  backupStoppedAt = 0
+  backupCurrentTrack = null
   broadcast()
 
   const listId = extractPlaylistId(backupPlaylistUrl)
@@ -263,14 +268,14 @@ async function playBackupPlaylist() {
       try {
         await playerView.webContents.executeJavaScript(`
           const p = document.querySelector('#movie_player')
-          p?.setVolume(${volume})
+          if (typeof p?.setVolume === 'function') p.setVolume(${volume})
 
-          // Enable shuffle
-          const shuffle = document.querySelector('.ytp-shuffle-button')
-            || document.querySelector('ytd-playlist-shuffle-button-renderer button')
-            || Array.from(document.querySelectorAll('button')).find(b =>
-                /shuffle/i.test(b.getAttribute('aria-label') || b.className))
-          if (shuffle && shuffle.getAttribute('aria-pressed') !== 'true') shuffle.click()
+          // Try enabling shuffle and loop via button clicks
+          document.querySelectorAll('button, [role="button"]').forEach(btn => {
+            const label = (btn.getAttribute('aria-label') || '').toLowerCase()
+            if (label.includes('shuffle') && btn.getAttribute('aria-pressed') !== 'true') btn.click()
+            if (label.includes('loop') && btn.getAttribute('aria-pressed') !== 'true') btn.click()
+          })
         `)
       } catch {}
     }, 3000)
@@ -301,6 +306,7 @@ function addToQueue(url, requester, title) {
   if (backupMode) {
     backupMode = false
     backupCurrentTrack = null
+    backupStoppedAt = 0
     playNext()
   } else {
     broadcast()
@@ -334,15 +340,40 @@ function startPollTimer() {
     if (backupMode) {
       try {
         const info = await playerView.webContents.executeJavaScript(`
-          const p = document.querySelector('#movie_player')
-          const state = p?.getPlayerState() ?? -1
-          const data = p?.getVideoData?.() ?? {}
-          const vol = p?.getVolume() ?? -1
-          ;({ state, title: data.title || null, videoId: data.video_id || null, currentVolume: vol })
+          ;(() => {
+            const p = document.querySelector('#movie_player')
+            const params = new URLSearchParams(window.location.search)
+            return {
+              state: typeof p?.getPlayerState === 'function' ? p.getPlayerState() : -1,
+              videoId: params.get('v') || null,
+              title: document.title ? document.title.replace(/ - YouTube$/i, '').trim() : null,
+              currentVolume: typeof p?.getVolume === 'function' ? p.getVolume() : -1,
+              hasPlaylist: typeof p?.getPlaylist === 'function' && Array.isArray(p.getPlaylist()) && p.getPlaylist().length > 1
+            }
+          })()
         `)
-        if (info.state === 0) {
-          playBackupPlaylist()
+
+        if (info.state === 0 || info.state === -1) {
+          if (!backupStoppedAt) {
+            backupStoppedAt = Date.now()
+            // Shuffle: jump to a random video in the playlist
+            await playerView.webContents.executeJavaScript(`
+              ;(() => {
+                const p = document.querySelector('#movie_player')
+                if (typeof p?.getPlaylist === 'function' && typeof p?.playVideoAt === 'function') {
+                  const pl = p.getPlaylist()
+                  if (pl && pl.length > 1) {
+                    p.playVideoAt(Math.floor(Math.random() * pl.length))
+                  }
+                }
+              })()
+            `)
+          } else if (Date.now() - backupStoppedAt > 10000) {
+            backupStoppedAt = 0
+            playBackupPlaylist()
+          }
         } else if (info.videoId) {
+          backupStoppedAt = 0
           if (info.currentVolume !== volume && info.currentVolume >= 0) {
             await playerView.webContents.executeJavaScript(
               `document.querySelector('#movie_player')?.setVolume(${volume})`
@@ -351,9 +382,13 @@ function startPollTimer() {
           const url = `https://www.youtube.com/watch?v=${info.videoId}`
           const changed = !backupCurrentTrack
             || backupCurrentTrack.videoId !== info.videoId
-            || backupCurrentTrack.title !== info.title
-          backupCurrentTrack = { title: info.title || info.videoId, url, videoId: info.videoId, requester: null }
-          if (changed) pushStatusToBot()
+          if (changed) {
+            backupCurrentTrack = { title: info.title || info.videoId, url, videoId: info.videoId, requester: null }
+            pushStatusToBot()
+          } else if (info.title && backupCurrentTrack.title !== info.title) {
+            backupCurrentTrack.title = info.title
+            pushStatusToBot()
+          }
         }
       } catch {}
       return
