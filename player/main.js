@@ -397,15 +397,23 @@ function startPollTimer() {
     if (!currentTrack || isPaused) return
     try {
       const info = await playerView.webContents.executeJavaScript(`
-        const p = document.querySelector('#movie_player')
-        ;({ state: p?.getPlayerState() ?? -1, currentVolume: p?.getVolume() ?? -1 })
+        ;(() => {
+          const p = document.querySelector('#movie_player')
+          const params = new URLSearchParams(window.location.search)
+          return {
+            state: p?.getPlayerState?.() ?? -1,
+            currentVolume: p?.getVolume?.() ?? -1,
+            videoId: params.get('v') || null
+          }
+        })()
       `)
       if (info.currentVolume !== volume && info.currentVolume >= 0) {
         await playerView.webContents.executeJavaScript(
           `document.querySelector('#movie_player')?.setVolume(${volume})`
         )
       }
-      if (info.state === 0) playNext()
+      const videoChanged = currentTrack.videoId && info.videoId && info.videoId !== currentTrack.videoId
+      if (info.state === 0 || videoChanged) playNext()
     } catch {}
   }, 2000)
 }
