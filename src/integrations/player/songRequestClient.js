@@ -48,8 +48,10 @@ function connect() {
         if (typeof msg.requestsEnabled === 'boolean') {
           const changed = requestsEnabled !== msg.requestsEnabled
           requestsEnabled = msg.requestsEnabled
-          _logColor(requestsEnabled ? 'green' : 'yellow', `[PLAYER] Song requests ${requestsEnabled ? 'enabled' : 'disabled'} by player`)
-          if (changed && _onRequestsToggled) _onRequestsToggled(requestsEnabled)
+          if (changed) {
+            _logColor(requestsEnabled ? 'green' : 'yellow', `[PLAYER] Song requests ${requestsEnabled ? 'enabled' : 'disabled'} by player`)
+            if (_onRequestsToggled) _onRequestsToggled(requestsEnabled)
+          }
         }
         if ('current' in msg) currentSong = msg.current
         return

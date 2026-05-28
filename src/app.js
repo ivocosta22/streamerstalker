@@ -180,14 +180,34 @@ startChatTimers({
   broadcasterId: twitch.channelUserId,
   moderatorId: twitch.botUserId,
   pingList,
-  onGoLive: async () => {
+  onGoLive: async (streamInfo) => {
     try {
       if (!_discordClient) return
       const channel = _discordClient.channels.cache.get(discord.goLiveChannelId)
       if (!channel) return
       const name = twitch.channelCaseSensitive
+      const title = streamInfo?.title || 'Untitled stream'
+      const category = streamInfo?.game_name || 'Something cool'
+      const viewers = streamInfo?.viewer_count ?? 0
+      const thumbnail = streamInfo?.thumbnail_url
+        ?.replace('{width}', '440')
+        ?.replace('{height}', '248')
+
+      const embed = new EmbedBuilder()
+        .setColor(0x9146FF)
+        .setAuthor({ name: `${name} is now live on Twitch!`, url: `https://twitch.tv/${twitch.channel}` })
+        .setTitle(title)
+        .setURL(`https://twitch.tv/${twitch.channel}`)
+        .addFields(
+          { name: 'Category', value: category, inline: true },
+          { name: 'Viewers', value: String(viewers), inline: true }
+        )
+
+      if (thumbnail) embed.setImage(thumbnail)
+
       await channel.send({
         content: `Hey @everyone! ${name} is now live on Twitch and Kick. Check it out!\nhttps://twitch.tv/${twitch.channel}\n${streamer.kickChannelUrl}`,
+        embeds: [embed],
         allowedMentions: { parse: ['everyone'] }
       })
       logColor('green', '[DISCORD] Sent go-live notification')
@@ -290,7 +310,7 @@ twitchChatClient.connect().catch(err => {
 // Discord Integration
 // Handles slash commands and message bridging
 // ============================================================
-const { Client, GatewayIntentBits, Partials, ActivityType, PermissionsBitField } = require('discord.js')
+const { Client, GatewayIntentBits, Partials, ActivityType, PermissionsBitField, EmbedBuilder } = require('discord.js')
 
 const discordClient = _discordClient = new Client({
   intents: [

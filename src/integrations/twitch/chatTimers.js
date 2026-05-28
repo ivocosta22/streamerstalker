@@ -1,6 +1,6 @@
 const fs = require('fs')
 const path = require('path')
-const { isStreamLive, getChannelInformation, sendChatAnnouncement } = require('./twitchAPI')
+const { isStreamLive, getStreamInfo, getChannelInformation, sendChatAnnouncement } = require('./twitchAPI')
 
 const TIMERS_PATH = path.resolve(__dirname, '../../config/timers.json')
 const CHAT_COUNT_WINDOW_MS = 5 * 60 * 1000
@@ -118,10 +118,11 @@ function startChatTimers({ say, broadcasterId, moderatorId, pingList, onGoLive, 
 
   async function pollLiveStatus() {
     try {
-      const live = await isStreamLive(broadcasterId)
+      const streamInfo = await getStreamInfo(broadcasterId)
+      const live = !!streamInfo
       if (live && !wasLive) {
         announceGoLive()
-        if (_onGoLive) _onGoLive()
+        if (_onGoLive) _onGoLive(streamInfo)
       }
       wasLive = live
       isLive = live
