@@ -68,7 +68,7 @@ function checkTimers() {
   const timer = eligible[Math.floor(Math.random() * eligible.length)]
   const msg = timer.messages[timer.messageIndex % timer.messages.length]
   timer.messageIndex = (timer.messageIndex + 1) % timer.messages.length
-  timer.lastSent = now
+  for (const t of eligible) t.lastSent = now
   lastGlobalSend = now
 
   _say(msg)
