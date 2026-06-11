@@ -277,17 +277,31 @@ class OBSController {
   }
 
   async setSourceVisibility(sourceName, enabled) {
-    if (!this.connected) return
+    if (!this.connected) {
+      logColor('yellow', `[OBS] ⚠️ Cannot set "${sourceName}" visibility — not connected`)
+      return
+    }
+    if (this.OBS_SCENES.length === 0) {
+      logColor('yellow', `[OBS] ⚠️ Cannot set "${sourceName}" visibility — no scenes loaded`)
+      return
+    }
+    let found = false
     for (const sceneName of this.OBS_SCENES) {
       try {
         const item = await this.getSceneItem(sceneName, sourceName)
         if (!item) continue
+        found = true
         await this.obs.call('SetSceneItemEnabled', {
           sceneName,
           sceneItemId: item.sceneItemId,
           sceneItemEnabled: enabled
         })
-      } catch {}
+      } catch (err) {
+        logColor('red', `[OBS] Failed to set "${sourceName}" visibility in "${sceneName}": ${err?.message || err}`)
+      }
+    }
+    if (!found) {
+      logColor('yellow', `[OBS] ⚠️ Source "${sourceName}" not found in any scene`)
     }
   }
 

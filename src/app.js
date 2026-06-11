@@ -55,12 +55,13 @@ async function startObs() {
 }
 startObs()
 getToken('user')
-songRequestClient.start(logColor, (enabled) => {
+songRequestClient.start(logColor, async (enabled) => {
   const msg = enabled
     ? 'Song requests are now enabled! Use !sr <YouTube URL> to request a song.'
     : 'Song requests are now disabled.'
+  logColor(enabled ? 'green' : 'yellow', `[SYSTEM] Requests toggled: ${enabled ? 'ON' : 'OFF'} — setting !srDisabled visibility to ${!enabled}`)
   ComfyJS?.Say?.(msg)
-  obsController.setSourceVisibility('!srDisabled', !enabled)
+  await obsController.setSourceVisibility('!srDisabled', !enabled)
 })
 
 // ============================================================
