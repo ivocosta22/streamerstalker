@@ -90,16 +90,28 @@ function createWindow() {
 
   // BrowserView hosts the real YouTube page — persistent partition means
   // the user only needs to log in once; Premium applies automatically.
-  playerView = new BrowserView({
+  playerView = createPlayerView()
+  mainWindow.addBrowserView(playerView)
+  resizePlayerView()
+
+  // Start blank — YouTube homepage auto-plays the "not available" video on Electron
+  playerView.webContents.loadURL('about:blank')
+
+  mainWindow.on('resize', resizePlayerView)
+  mainWindow.on('closed', () => { mainWindow = null })
+}
+
+// Builds a fresh YouTube BrowserView. The persistent partition is shared
+// across views, so recreating one keeps login/Premium intact while releasing
+// the renderer memory the previous one accumulated.
+function createPlayerView() {
+  const view = new BrowserView({
     webPreferences: {
       partition: 'persist:youtube',
       contextIsolation: true,
       nodeIntegration: false
     }
   })
-
-  mainWindow.addBrowserView(playerView)
-  resizePlayerView()
 
   // Intercept navigation to blocked video IDs (event-driven, no polling delay)
   const handleNavUrl = (url) => {
@@ -108,18 +120,43 @@ function createWindow() {
       if (backupPlaylistUrl) {
         playBackupPlaylist()
       } else {
-        playerView.webContents.loadURL('about:blank')
+        view.webContents.loadURL('about:blank')
       }
     }
   }
-  playerView.webContents.on('did-navigate', (_e, url) => handleNavUrl(url))
-  playerView.webContents.on('did-navigate-in-page', (_e, url) => handleNavUrl(url))
+  view.webContents.on('did-navigate', (_e, url) => handleNavUrl(url))
+  view.webContents.on('did-navigate-in-page', (_e, url) => handleNavUrl(url))
 
-  // Start blank — YouTube homepage auto-plays the "not available" video on Electron
-  playerView.webContents.loadURL('about:blank')
+  return view
+}
 
-  mainWindow.on('resize', resizePlayerView)
-  mainWindow.on('closed', () => { mainWindow = null })
+// ── Player view recycling ──────────────────────────────────────────────────────
+// Reusing a single YouTube webContents for many heavy watch pages leaks renderer
+// memory until playback thrashes. We swap in a fresh view every RECYCLE_EVERY
+// videos to keep memory flat. SR mode counts via loadsSinceRecycle; backup mode
+// (YouTube native autoplay) counts via backupVideosPlayed in the poll loop.
+const RECYCLE_EVERY = 10
+let loadsSinceRecycle = 0
+let backupVideosPlayed = 0
+
+function recyclePlayerView() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  loadsSinceRecycle = 0
+  const old = playerView
+  playerView = createPlayerView()
+  mainWindow.addBrowserView(playerView)
+  resizePlayerView()
+  try {
+    if (old) {
+      mainWindow.removeBrowserView(old)
+      const wc = old.webContents
+      if (wc && !wc.isDestroyed()) {
+        // Forcefully tear down the old renderer to release its memory now.
+        if (typeof wc.destroy === 'function') wc.destroy()
+        else if (typeof wc.close === 'function') wc.close()
+      }
+    }
+  } catch {}
 }
 
 function resizePlayerView() {
@@ -177,10 +214,12 @@ function playNext() {
   backupMode = false
   backupCurrentTrack = null
   backupStoppedAt = 0
+  backupVideosPlayed = 0
   currentTrack = queue.shift()
   isPaused = false
   broadcast()
 
+  if (++loadsSinceRecycle >= RECYCLE_EVERY) recyclePlayerView()
   playerView.webContents.loadURL(currentTrack.url)
 
   playerView.webContents.once('did-finish-load', () => {
@@ -243,6 +282,7 @@ async function playBackupPlaylist() {
   backupMode = true
   backupStoppedAt = 0
   backupCurrentTrack = null
+  backupVideosPlayed = 0
   broadcast()
 
   const listId = extractPlaylistId(backupPlaylistUrl)
@@ -261,6 +301,7 @@ async function playBackupPlaylist() {
       : `https://www.youtube.com/watch?list=${listId}`
   }
 
+  if (++loadsSinceRecycle >= RECYCLE_EVERY) recyclePlayerView()
   playerView.webContents.loadURL(url)
 
   playerView.webContents.once('did-finish-load', () => {
@@ -385,6 +426,13 @@ function startPollTimer() {
           if (changed) {
             backupCurrentTrack = { title: info.title || info.videoId, url, videoId: info.videoId, requester: null }
             pushStatusToBot()
+            // YouTube's native autoplay keeps the SPA alive between videos, leaking
+            // memory. Restart the playlist on a fresh view every RECYCLE_EVERY videos.
+            if (++backupVideosPlayed >= RECYCLE_EVERY) {
+              recyclePlayerView()
+              playBackupPlaylist()
+              return
+            }
           } else if (info.title && backupCurrentTrack.title !== info.title) {
             backupCurrentTrack.title = info.title
             pushStatusToBot()
