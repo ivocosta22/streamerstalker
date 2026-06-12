@@ -25,6 +25,7 @@ let backupPlaylistUrl = ''
 let backupMode = false
 let backupCurrentTrack = null
 let backupStoppedAt = 0
+let cachedPlaylistIds = []
 
 // Keep a reference to the active bot socket so we can push status updates
 let botSocket = null
@@ -292,7 +293,7 @@ async function playBackupPlaylist() {
   // Pick a random video from the playlist so it doesn't always start with the same one.
   let url = backupPlaylistUrl
   if (listId) {
-    const ids = await getPlaylistVideoIds(listId)
+    let ids = cachedPlaylistIds.length > 0 ? cachedPlaylistIds : await getPlaylistVideoIds(listId)
     const seedId = ids.length > 0
       ? ids[Math.floor(Math.random() * ids.length)]
       : await getPlaylistSeedVideoId(listId)
@@ -384,15 +385,18 @@ function startPollTimer() {
           ;(() => {
             const p = document.querySelector('#movie_player')
             const params = new URLSearchParams(window.location.search)
+            const pl = typeof p?.getPlaylist === 'function' ? p.getPlaylist() : null
             return {
               state: typeof p?.getPlayerState === 'function' ? p.getPlayerState() : -1,
               videoId: params.get('v') || null,
               title: document.title ? document.title.replace(/ - YouTube$/i, '').trim() : null,
               currentVolume: typeof p?.getVolume === 'function' ? p.getVolume() : -1,
-              hasPlaylist: typeof p?.getPlaylist === 'function' && Array.isArray(p.getPlaylist()) && p.getPlaylist().length > 1
+              playlistIds: Array.isArray(pl) && pl.length > 1 ? pl : null
             }
           })()
         `)
+
+        if (info.playlistIds) cachedPlaylistIds = info.playlistIds
 
         if (info.state === 0 || info.state === -1) {
           if (!backupStoppedAt) {
