@@ -1,7 +1,7 @@
 {
   "name": "surferstalker-player",
   "productName": "SurferStalker Player",
-  "version": "1.2.6",
+  "version": "1.2.7",
   "description": "SurferStalker Player",
   "main": "main.js",
   "scripts": {
