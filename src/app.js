@@ -325,7 +325,7 @@ const discordClient = _discordClient = new Client({
 
 discordClient.once('clientReady', () => {
   try {
-    discordClient.user.setActivity('Stalking SurferKiller', { type: ActivityType.Watching })
+    discordClient.user.setActivity('🏝️ What is this island thing about?', { type: ActivityType.Watching })
     logColor('green', `[DISCORD] ✅ Logged in as ${discordClient.user.tag}`)
   } catch (err) {
     logColor('red', `[DISCORD] ❌ Error in ready handler: ${err?.message || err}`)

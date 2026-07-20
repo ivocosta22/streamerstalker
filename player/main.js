@@ -24,8 +24,19 @@ let volume = 100
 let backupPlaylistUrl = ''
 let backupMode = false
 let backupCurrentTrack = null
-let backupStoppedAt = 0
-let cachedPlaylistIds = []
+
+// ── Backup shuffle state ──
+// We drive the backup playlist ourselves instead of relying on YouTube's native
+// shuffle. On a watch page YouTube only exposes a small ~7–15 video window via
+// getPlaylist(), so its random jumps kept replaying the same handful of songs.
+// Instead we scrape the full playlist once and keep a Fisher-Yates "shuffle bag"
+// of remaining IDs, loading each next song directly — no repeats until the whole
+// list has played through.
+let backupAllIds = []        // full set of video IDs scraped from the playlist
+let loadedPlaylistId = ''    // which playlist backupAllIds was fetched for
+let backupBag = []           // remaining shuffled IDs for the current cycle
+let backupLastVideoId = null // last song we chose (avoid back-to-back repeats)
+let backupLoadStartedAt = 0  // when the current backup song began loading
 
 // Keep a reference to the active bot socket so we can push status updates
 let botSocket = null
@@ -134,11 +145,10 @@ function createPlayerView() {
 // ── Player view recycling ──────────────────────────────────────────────────────
 // Reusing a single YouTube webContents for many heavy watch pages leaks renderer
 // memory until playback thrashes. We swap in a fresh view every RECYCLE_EVERY
-// videos to keep memory flat. SR mode counts via loadsSinceRecycle; backup mode
-// (YouTube native autoplay) counts via backupVideosPlayed in the poll loop.
+// videos to keep memory flat. Both SR mode and backup mode navigate to a fresh
+// watch page per song and count via loadsSinceRecycle.
 const RECYCLE_EVERY = 10
 let loadsSinceRecycle = 0
-let backupVideosPlayed = 0
 
 function recyclePlayerView() {
   if (!mainWindow || mainWindow.isDestroyed()) return
@@ -205,7 +215,7 @@ function playNext() {
     } else {
       backupMode = false
       backupCurrentTrack = null
-      backupStoppedAt = 0
+      backupLoadStartedAt = 0
       broadcast()
       playerView.webContents.loadURL('about:blank')
     }
@@ -214,8 +224,7 @@ function playNext() {
 
   backupMode = false
   backupCurrentTrack = null
-  backupStoppedAt = 0
-  backupVideosPlayed = 0
+  backupLoadStartedAt = 0
   currentTrack = queue.shift()
   isPaused = false
   broadcast()
@@ -279,59 +288,114 @@ async function getPlaylistSeedVideoId(listId) {
   } catch { return null }
 }
 
+// ── Backup shuffle helpers ──────────────────────────────────────────────────────
+
+function shuffle(arr) {
+  const a = arr.slice()
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1))
+    ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
+// Refill the bag with a fresh permutation of the whole playlist. Guards against
+// the new cycle opening on the exact song that just finished.
+function refillBackupBag() {
+  if (backupAllIds.length === 0) { backupBag = []; return }
+  backupBag = shuffle(backupAllIds)
+  if (backupBag.length > 1 && backupBag[0] === backupLastVideoId) {
+    const j = 1 + Math.floor(Math.random() * (backupBag.length - 1))
+    ;[backupBag[0], backupBag[j]] = [backupBag[j], backupBag[0]]
+  }
+}
+
+function nextBackupVideoId() {
+  if (backupBag.length === 0) refillBackupBag()
+  return backupBag.shift() || null
+}
+
+// Run JS in the player view, tolerating a view that was just recycled/destroyed.
+async function safeExec(code) {
+  const wc = playerView && playerView.webContents
+  if (!wc || wc.isDestroyed()) return null
+  try { return await wc.executeJavaScript(code) } catch { return null }
+}
+
+// Load one specific backup song. We navigate to a bare watch URL (no &list=) so
+// YouTube can't inject its own sequential/related autoplay — we alone decide the
+// next track. Recycles the view every RECYCLE_EVERY loads to keep memory flat.
+function loadBackupVideo(videoId) {
+  if (!videoId) { playBackupPlaylist(); return }
+  backupMode = true
+  backupLastVideoId = videoId
+  backupLoadStartedAt = Date.now()
+  if (++loadsSinceRecycle >= RECYCLE_EVERY) recyclePlayerView()
+  const view = playerView
+  view.webContents.loadURL(`https://www.youtube.com/watch?v=${videoId}`)
+  view.webContents.once('did-finish-load', () => {
+    setTimeout(async () => {
+      await safeExec(`
+        const p = document.querySelector('#movie_player')
+        if (typeof p?.setVolume === 'function') p.setVolume(${volume})
+        p?.playVideo?.()
+      `)
+    }, 2500)
+  })
+}
+
 async function playBackupPlaylist() {
   backupMode = true
-  backupStoppedAt = 0
   backupCurrentTrack = null
-  backupVideosPlayed = 0
+  backupLoadStartedAt = 0
   broadcast()
 
   const listId = extractPlaylistId(backupPlaylistUrl)
 
-  // Always use watch?v=VIDEO_ID&list=LIST_ID so YouTube doesn't
-  // trigger device detection on a bare watch?list= URL.
-  // Pick a random video from the playlist so it doesn't always start with the same one.
+  // Scrape the full playlist once — or again if the configured playlist changed.
+  if (listId && (backupAllIds.length === 0 || listId !== loadedPlaylistId)) {
+    const ids = await getPlaylistVideoIds(listId)
+    if (ids.length > 0) {
+      backupAllIds = ids
+      loadedPlaylistId = listId
+      backupBag = []
+    }
+  }
+
+  // Preferred path: our own true shuffle across the entire playlist.
+  if (backupAllIds.length > 0) {
+    loadBackupVideo(nextBackupVideoId())
+    return
+  }
+
+  // Fallback: couldn't scrape IDs (private/edge-case playlist) — let YouTube drive
+  // the list natively from a seed video. watch?v=ID&list=ID avoids the device
+  // detection that a bare watch?list= URL triggers.
+  backupLoadStartedAt = Date.now()
   let url = backupPlaylistUrl
   if (listId) {
-    let ids = cachedPlaylistIds.length > 0 ? cachedPlaylistIds : await getPlaylistVideoIds(listId)
-    const seedId = ids.length > 0
-      ? ids[Math.floor(Math.random() * ids.length)]
-      : await getPlaylistSeedVideoId(listId)
+    const seedId = await getPlaylistSeedVideoId(listId)
     url = seedId
       ? `https://www.youtube.com/watch?v=${seedId}&list=${listId}`
       : `https://www.youtube.com/watch?list=${listId}`
   }
-
   if (++loadsSinceRecycle >= RECYCLE_EVERY) recyclePlayerView()
-  playerView.webContents.loadURL(url)
-
-  playerView.webContents.once('did-finish-load', () => {
+  const view = playerView
+  view.webContents.loadURL(url)
+  view.webContents.once('did-finish-load', () => {
     setTimeout(async () => {
-      try {
-        await playerView.webContents.executeJavaScript(`
-          const p = document.querySelector('#movie_player')
-          if (typeof p?.setVolume === 'function') p.setVolume(${volume})
-
-          // Try enabling shuffle and loop via button clicks
-          document.querySelectorAll('button, [role="button"]').forEach(btn => {
-            const label = (btn.getAttribute('aria-label') || '').toLowerCase()
-            if (label.includes('shuffle') && btn.getAttribute('aria-pressed') !== 'true') btn.click()
-            if (label.includes('loop') && btn.getAttribute('aria-pressed') !== 'true') btn.click()
-          })
-        `)
-      } catch {}
+      await safeExec(`
+        const p = document.querySelector('#movie_player')
+        if (typeof p?.setVolume === 'function') p.setVolume(${volume})
+      `)
     }, 3000)
   })
 }
 
 async function skipCurrent() {
   if (backupMode) {
-    // Advance to next video in the backup playlist natively
-    try {
-      await playerView.webContents.executeJavaScript(
-        `document.querySelector('.ytp-next-button')?.click()`
-      )
-    } catch {}
+    // Advance to the next shuffled backup song ourselves
+    loadBackupVideo(nextBackupVideoId())
   } else {
     playNext()
   }
@@ -348,7 +412,7 @@ function addToQueue(url, requester, title) {
   if (backupMode) {
     backupMode = false
     backupCurrentTrack = null
-    backupStoppedAt = 0
+    backupLoadStartedAt = 0
     playNext()
   } else {
     broadcast()
@@ -363,92 +427,87 @@ function addToQueue(url, requester, title) {
 const BLOCKED_VIDEO_IDS = new Set(['9xp1XWmJ_Wo'])
 
 function startPollTimer() {
+  let pollBusy = false
   pollTimer = setInterval(async () => {
-    if (!playerView) return
+    // A poll tick can await for longer than the interval; never let two run at
+    // once or they double-advance and race the view during a recycle.
+    if (!playerView || pollBusy) return
+    pollBusy = true
+    try {
+      const wc = playerView.webContents
+      if (!wc || wc.isDestroyed()) return
 
-    // Skip YouTube's "not available on this device" video and any other blocklisted IDs
-    const currentUrl = playerView.webContents.getURL()
-    const blockedMatch = currentUrl.match(/[?&]v=([^&]+)/)
-    if (blockedMatch && BLOCKED_VIDEO_IDS.has(blockedMatch[1])) {
-      if (backupPlaylistUrl) {
-        playBackupPlaylist()
-      } else {
-        playerView.webContents.loadURL('about:blank')
+      // Skip YouTube's "not available on this device" video and other blocklisted IDs
+      const currentUrl = wc.getURL()
+      const blockedMatch = currentUrl.match(/[?&]v=([^&]+)/)
+      if (blockedMatch && BLOCKED_VIDEO_IDS.has(blockedMatch[1])) {
+        if (backupMode) loadBackupVideo(nextBackupVideoId())
+        else if (backupPlaylistUrl) playBackupPlaylist()
+        else wc.loadURL('about:blank')
+        return
       }
-      return
-    }
 
-    // In backup mode: track current song for !song command, re-trigger if playlist ended
-    if (backupMode) {
-      try {
-        const info = await playerView.webContents.executeJavaScript(`
+      // Backup mode: track the current song and advance the shuffle when it ends.
+      if (backupMode) {
+        const info = await safeExec(`
           ;(() => {
             const p = document.querySelector('#movie_player')
             const params = new URLSearchParams(window.location.search)
-            const pl = typeof p?.getPlaylist === 'function' ? p.getPlaylist() : null
             return {
               state: typeof p?.getPlayerState === 'function' ? p.getPlayerState() : -1,
               videoId: params.get('v') || null,
               title: document.title ? document.title.replace(/ - YouTube$/i, '').trim() : null,
-              currentVolume: typeof p?.getVolume === 'function' ? p.getVolume() : -1,
-              playlistIds: Array.isArray(pl) && pl.length > 1 ? pl : null
+              currentVolume: typeof p?.getVolume === 'function' ? p.getVolume() : -1
             }
           })()
         `)
+        if (!info) return
 
-        if (info.playlistIds) cachedPlaylistIds = info.playlistIds
+        // Keep volume in sync with the slider
+        if (info.currentVolume !== volume && info.currentVolume >= 0) {
+          await safeExec(`document.querySelector('#movie_player')?.setVolume(${volume})`)
+        }
 
-        if (info.state === 0 || info.state === -1) {
-          if (!backupStoppedAt) {
-            backupStoppedAt = Date.now()
-            // Shuffle: jump to a random video in the playlist
-            await playerView.webContents.executeJavaScript(`
-              ;(() => {
-                const p = document.querySelector('#movie_player')
-                if (typeof p?.getPlaylist === 'function' && typeof p?.playVideoAt === 'function') {
-                  const pl = p.getPlaylist()
-                  if (pl && pl.length > 1) {
-                    p.playVideoAt(Math.floor(Math.random() * pl.length))
-                  }
-                }
-              })()
-            `)
-          } else if (Date.now() - backupStoppedAt > 10000) {
-            backupStoppedAt = 0
-            playBackupPlaylist()
-          }
-        } else if (info.videoId) {
-          backupStoppedAt = 0
-          if (info.currentVolume !== volume && info.currentVolume >= 0) {
-            await playerView.webContents.executeJavaScript(
-              `document.querySelector('#movie_player')?.setVolume(${volume})`
-            )
-          }
-          const url = `https://www.youtube.com/watch?v=${info.videoId}`
-          const changed = !backupCurrentTrack
-            || backupCurrentTrack.videoId !== info.videoId
+        // Expose the current song for the !song command
+        if (info.videoId) {
+          const changed = !backupCurrentTrack || backupCurrentTrack.videoId !== info.videoId
           if (changed) {
-            backupCurrentTrack = { title: info.title || info.videoId, url, videoId: info.videoId, requester: null }
-            pushStatusToBot()
-            // YouTube's native autoplay keeps the SPA alive between videos, leaking
-            // memory. Restart the playlist on a fresh view every RECYCLE_EVERY videos.
-            if (++backupVideosPlayed >= RECYCLE_EVERY) {
-              recyclePlayerView()
-              playBackupPlaylist()
-              return
+            backupCurrentTrack = {
+              title: info.title || info.videoId,
+              url: `https://www.youtube.com/watch?v=${info.videoId}`,
+              videoId: info.videoId,
+              requester: null
             }
+            pushStatusToBot()
           } else if (info.title && backupCurrentTrack.title !== info.title) {
             backupCurrentTrack.title = info.title
             pushStatusToBot()
           }
         }
-      } catch {}
-      return
-    }
 
-    if (!currentTrack || isPaused) return
-    try {
-      const info = await playerView.webContents.executeJavaScript(`
+        const sinceLoad = Date.now() - backupLoadStartedAt
+
+        // Reclaim control if YouTube slipped in its own autoplay (a video we
+        // didn't queue). Only when we're self-driving and the load has settled.
+        if (backupAllIds.length > 0 && info.videoId
+            && info.videoId !== backupLastVideoId
+            && backupLoadStartedAt > 0 && sinceLoad > 5000) {
+          loadBackupVideo(nextBackupVideoId())
+          return
+        }
+
+        // Advance when the song ends (state 0), or if it never starts within 30s.
+        // Crucially we do NOT treat "unstarted" (-1) as ended during load — doing
+        // so used to interrupt the page before it could finish loading.
+        const ended = info.state === 0
+        const stuck = info.state === -1 && backupLoadStartedAt > 0 && sinceLoad > 30000
+        if (ended || stuck) loadBackupVideo(nextBackupVideoId())
+        return
+      }
+
+      // Song-request mode
+      if (!currentTrack || isPaused) return
+      const info = await safeExec(`
         ;(() => {
           const p = document.querySelector('#movie_player')
           const params = new URLSearchParams(window.location.search)
@@ -459,14 +518,14 @@ function startPollTimer() {
           }
         })()
       `)
+      if (!info) return
       if (info.currentVolume !== volume && info.currentVolume >= 0) {
-        await playerView.webContents.executeJavaScript(
-          `document.querySelector('#movie_player')?.setVolume(${volume})`
-        )
+        await safeExec(`document.querySelector('#movie_player')?.setVolume(${volume})`)
       }
       const videoChanged = currentTrack.videoId && info.videoId && info.videoId !== currentTrack.videoId
       if (info.state === 0 || videoChanged) playNext()
     } catch {}
+    finally { pollBusy = false }
   }, 2000)
 }
 
