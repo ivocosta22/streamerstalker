@@ -101,7 +101,11 @@ function createCommands(context) {
 
   const kickCommand = () => streamer.kickChannelUrl
 
-  const playlistCommand = () => `Frenchcore: https://www.youtube.com/playlist?list=PLbRxpesByb8HUJGcLGDPmla296SDAS9td | Nostalgia: https://www.youtube.com/playlist?list=PLbRxpesByb8F8vh09GqN6siJS-S_yqQFB | Sextrance: https://www.youtube.com/playlist?list=PLbRxpesByb8EhNlUL7EKn5QAnyVudwIfG`
+  const playlistCommand = () => {
+    const url = songRequestClient.getBackupPlaylistUrl()
+    if (!url) return 'No playlist is currently set.'
+    return `Current playlist: ${url}`
+  }
 
   const gamesCommand = () => `https://docs.google.com/spreadsheets/d/1_CKIaCLP_IbpAglM98tuiQkbwyO_oDgYcVxrmHbZNBo/edit?usp=sharing`
 
@@ -123,9 +127,18 @@ function createCommands(context) {
 
   const pingCommand = () => {
     const totalSeconds = Math.floor((Date.now() - botState.startTime) / 1000)
-    const minutes = Math.floor(totalSeconds / 60)
+    const parts = []
+    const weeks = Math.floor(totalSeconds / 604800)
+    const days = Math.floor((totalSeconds % 604800) / 86400)
+    const hours = Math.floor((totalSeconds % 86400) / 3600)
+    const minutes = Math.floor((totalSeconds % 3600) / 60)
     const seconds = totalSeconds % 60
-    return `Pong. I have been stalking for ${minutes} minutes and ${seconds} seconds.`
+    if (weeks) parts.push(`${weeks} week${weeks !== 1 ? 's' : ''}`)
+    if (days) parts.push(`${days} day${days !== 1 ? 's' : ''}`)
+    if (hours) parts.push(`${hours} hour${hours !== 1 ? 's' : ''}`)
+    if (minutes) parts.push(`${minutes} minute${minutes !== 1 ? 's' : ''}`)
+    if (seconds || parts.length === 0) parts.push(`${seconds} second${seconds !== 1 ? 's' : ''}`)
+    return `Pong. I have been stalking for ${parts.join(', ')}.`
   }
 
   const tuckCommand = (username) => {

@@ -6,6 +6,7 @@ let socket = null
 let ready = false
 let requestsEnabled = true
 let currentSong = null   // { title, url, requester } — pushed by player on track change
+let backupPlaylistUrl = null
 let _logColor = () => {}
 let _onRequestsToggled = null
 let _reconnectDelay = RECONNECT_MIN_MS
@@ -27,6 +28,7 @@ function connect() {
     ready = false
     socket = null
     currentSong = null
+    backupPlaylistUrl = null
     if (wasReady) {
       _reconnectDelay = RECONNECT_MIN_MS
       _logColor('yellow', '[PLAYER] ⚠️ Player disconnected — will retry')
@@ -54,6 +56,7 @@ function connect() {
           }
         }
         if ('current' in msg) currentSong = msg.current
+        if ('backupPlaylistUrl' in msg) backupPlaylistUrl = msg.backupPlaylistUrl || null
         return
       }
       // Any non-status message is an ack for a pending enqueue
@@ -127,10 +130,14 @@ function getCurrentSong() {
   return currentSong
 }
 
+function getBackupPlaylistUrl() {
+  return backupPlaylistUrl
+}
+
 function start(logColor, onRequestsToggled) {
   _logColor = logColor
   _onRequestsToggled = onRequestsToggled || null
   connect()
 }
 
-module.exports = { start, enqueue, skip, getCurrentSong }
+module.exports = { start, enqueue, skip, getCurrentSong, getBackupPlaylistUrl }

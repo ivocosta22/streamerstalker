@@ -198,6 +198,7 @@ function pushStatusToBot() {
     botSocket.send(JSON.stringify({
       type: 'status',
       requestsEnabled,
+      backupPlaylistUrl,
       current: active
         ? { title: active.title, url: active.url, requester: active.requester }
         : null
@@ -290,6 +291,13 @@ async function getPlaylistSeedVideoId(listId) {
 
 // ── Backup shuffle helpers ──────────────────────────────────────────────────────
 
+function resetBackupShuffle() {
+  backupAllIds = []
+  loadedPlaylistId = ''
+  backupBag = []
+  backupLastVideoId = null
+}
+
 function shuffle(arr) {
   const a = arr.slice()
   for (let i = a.length - 1; i > 0; i--) {
@@ -322,11 +330,41 @@ async function safeExec(code) {
   try { return await wc.executeJavaScript(code) } catch { return null }
 }
 
+// Try to harvest playlist IDs from the YouTube player API in the BrowserView.
+// This works even for private/unlisted playlists because the view has the user's
+// login session.  Called from did-finish-load and from the poll loop as a retry.
+async function tryHarvestPlaylistIds() {
+  if (backupAllIds.length > 0) return
+  const harvested = await safeExec(`
+    ;(() => {
+      const p = document.querySelector('#movie_player')
+      const pl = typeof p?.getPlaylist === 'function' ? p.getPlaylist() : null
+      const params = new URLSearchParams(window.location.search)
+      return {
+        ids: Array.isArray(pl) && pl.length > 1 ? pl : null,
+        videoId: params.get('v') || null
+      }
+    })()
+  `)
+  if (harvested && harvested.ids && harvested.ids.length > 0) {
+    const listId = extractPlaylistId(backupPlaylistUrl)
+    backupAllIds = harvested.ids
+    if (listId) loadedPlaylistId = listId
+    backupBag = []
+    if (harvested.videoId) backupLastVideoId = harvested.videoId
+    console.log(`[PLAYER] Harvested ${harvested.ids.length} IDs from YouTube player`)
+  }
+}
+
 // Load one specific backup song. We navigate to a bare watch URL (no &list=) so
 // YouTube can't inject its own sequential/related autoplay — we alone decide the
 // next track. Recycles the view every RECYCLE_EVERY loads to keep memory flat.
 function loadBackupVideo(videoId) {
-  if (!videoId) { playBackupPlaylist(); return }
+  if (!videoId) {
+    backupLoadStartedAt = Date.now()
+    safeExec(`document.querySelector('.ytp-next-button')?.click()`)
+    return
+  }
   backupMode = true
   backupLastVideoId = videoId
   backupLoadStartedAt = Date.now()
@@ -355,6 +393,7 @@ async function playBackupPlaylist() {
   // Scrape the full playlist once — or again if the configured playlist changed.
   if (listId && (backupAllIds.length === 0 || listId !== loadedPlaylistId)) {
     const ids = await getPlaylistVideoIds(listId)
+    console.log(`[PLAYER] Server-side playlist scrape: ${ids.length} IDs`)
     if (ids.length > 0) {
       backupAllIds = ids
       loadedPlaylistId = listId
@@ -368,9 +407,10 @@ async function playBackupPlaylist() {
     return
   }
 
-  // Fallback: couldn't scrape IDs (private/edge-case playlist) — let YouTube drive
-  // the list natively from a seed video. watch?v=ID&list=ID avoids the device
-  // detection that a bare watch?list= URL triggers.
+  // Server-side scrape failed (private playlist, rate-limit, etc.).
+  // Load with &list= so YouTube's player exposes the playlist via getPlaylist().
+  // The poll loop will harvest IDs from there and our shuffle will take over.
+  console.log('[PLAYER] Server scrape empty — loading with &list= for in-page harvest')
   backupLoadStartedAt = Date.now()
   let url = backupPlaylistUrl
   if (listId) {
@@ -388,6 +428,7 @@ async function playBackupPlaylist() {
         const p = document.querySelector('#movie_player')
         if (typeof p?.setVolume === 'function') p.setVolume(${volume})
       `)
+      tryHarvestPlaylistIds()
     }, 3000)
   })
 }
@@ -487,6 +528,11 @@ function startPollTimer() {
 
         const sinceLoad = Date.now() - backupLoadStartedAt
 
+        // If we don't have playlist IDs yet, try harvesting from YouTube's
+        // player API on every tick (works for private/unlisted playlists
+        // because the BrowserView has the user's login session).
+        if (backupAllIds.length === 0) await tryHarvestPlaylistIds()
+
         // Reclaim control if YouTube slipped in its own autoplay (a video we
         // didn't queue). Only when we're self-driving and the load has settled.
         if (backupAllIds.length > 0 && info.videoId
@@ -574,18 +620,19 @@ ipcMain.on('toggle-requests', () => {
 })
 
 ipcMain.on('set-backup-playlist', (_e, url) => {
+  const prev = backupPlaylistUrl
   backupPlaylistUrl = url.trim()
   scheduleSave()
+  if (backupPlaylistUrl !== prev) resetBackupShuffle()
   broadcast()
-  // If nothing is playing and we just set a URL, start it
   if (!currentTrack && !backupMode && backupPlaylistUrl) playBackupPlaylist()
 })
 
 ipcMain.on('update-backup-playlist', (_e, url) => {
   backupPlaylistUrl = url.trim()
   scheduleSave()
+  resetBackupShuffle()
   broadcast()
-  // Immediately switch to the new playlist if idle or already in backup mode
   if (backupPlaylistUrl && (!currentTrack || backupMode)) playBackupPlaylist()
 })
 
