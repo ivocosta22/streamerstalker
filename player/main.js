@@ -7,6 +7,7 @@ app.setName('SurferStalker Player')
 
 const WS_PORT = 9001
 const SIDEBAR_WIDTH = 320
+const LOG_PANEL_WIDTH = 460
 const WINDOW_WIDTH = 1280
 const WINDOW_HEIGHT = 720
 
@@ -14,6 +15,7 @@ let mainWindow = null
 let playerView = null
 let pollTimer = null
 let saveTimer = null
+let logsOpen = false
 
 const queue = []      // [{ url, requester, title, videoId }]
 let currentTrack = null
@@ -41,9 +43,51 @@ let backupLoadStartedAt = 0  // when the current backup song began loading
 // Keep a reference to the active bot socket so we can push status updates
 let botSocket = null
 
+// ── Log capture ───────────────────────────────────────────────────────────────
+// The packaged app has no console, so mirror everything the main process prints
+// into a ring buffer the sidebar can render.
+
+const MAX_LOG_LINES = 1000
+const logBuffer = []
+
+function formatLogArg(a) {
+  if (typeof a === 'string') return a
+  if (a instanceof Error) return a.stack || a.message
+  try { return JSON.stringify(a) } catch { return String(a) }
+}
+
+function pushLog(level, text) {
+  const entry = { t: Date.now(), level, text }
+  logBuffer.push(entry)
+  if (logBuffer.length > MAX_LOG_LINES) logBuffer.splice(0, logBuffer.length - MAX_LOG_LINES)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try { mainWindow.webContents.send('log', entry) } catch {}
+  }
+}
+
+function installLogCapture() {
+  for (const level of ['log', 'info', 'warn', 'error']) {
+    const original = console[level].bind(console)
+    console[level] = (...args) => {
+      original(...args)
+      pushLog(level === 'info' ? 'log' : level, args.map(formatLogArg).join(' '))
+    }
+  }
+  // Node diagnostics that bypass console entirely. uncaughtException is left
+  // alone on purpose — handling it would suppress crashes instead of logging.
+  process.on('warning', (w) => pushLog('warn', `${w.name}: ${w.message}`))
+  process.on('unhandledRejection', (reason) => {
+    pushLog('error', `Unhandled rejection: ${formatLogArg(reason)}`)
+  })
+}
+
 // ── Settings persistence ──────────────────────────────────────────────────────
 
 const settingsPath = path.join(app.getPath('userData'), 'settings.json')
+
+// Volume is reported from saveSettings rather than the IPC handler: the slider
+// fires on every pixel of drag, and that path is already debounced.
+let lastLoggedVolume = null
 
 function loadSettings() {
   try {
@@ -51,6 +95,8 @@ function loadSettings() {
       const data = JSON.parse(fs.readFileSync(settingsPath, 'utf8'))
       if (typeof data.volume === 'number') volume = Math.max(0, Math.min(100, data.volume))
       if (typeof data.backupPlaylistUrl === 'string') backupPlaylistUrl = data.backupPlaylistUrl
+      lastLoggedVolume = volume
+      console.log(`[PLAYER] Settings loaded — volume ${volume}, backup playlist ${backupPlaylistUrl ? 'set' : 'none'}`)
     }
   } catch {}
 }
@@ -58,7 +104,13 @@ function loadSettings() {
 function saveSettings() {
   try {
     fs.writeFileSync(settingsPath, JSON.stringify({ volume, backupPlaylistUrl }, null, 2))
-  } catch {}
+    if (lastLoggedVolume !== null && lastLoggedVolume !== volume) {
+      console.log(`[PLAYER] Volume set to ${volume}`)
+    }
+    lastLoggedVolume = volume
+  } catch (err) {
+    console.error(`[PLAYER] Failed to save settings: ${err.message}`)
+  }
 }
 
 function scheduleSave() {
@@ -139,6 +191,18 @@ function createPlayerView() {
   view.webContents.on('did-navigate', (_e, url) => handleNavUrl(url))
   view.webContents.on('did-navigate-in-page', (_e, url) => handleNavUrl(url))
 
+  view.webContents.on('did-fail-load', (_e, code, desc, url) => {
+    // -3 is ABORTED, which fires routinely whenever we navigate away mid-load
+    if (code === -3) return
+    console.error(`[PLAYER] Page load failed (${code} ${desc}): ${url}`)
+  })
+  view.webContents.on('render-process-gone', (_e, details) => {
+    console.error(`[PLAYER] Player renderer gone: ${details.reason}`)
+  })
+  view.webContents.on('unresponsive', () => {
+    console.warn('[PLAYER] Player view stopped responding')
+  })
+
   return view
 }
 
@@ -152,11 +216,12 @@ let loadsSinceRecycle = 0
 
 function recyclePlayerView() {
   if (!mainWindow || mainWindow.isDestroyed()) return
+  console.log(`[PLAYER] Recycling player view after ${loadsSinceRecycle} loads (frees renderer memory)`)
   loadsSinceRecycle = 0
   const old = playerView
-  playerView = createPlayerView()
-  mainWindow.addBrowserView(playerView)
-  resizePlayerView()
+
+  // Detach the outgoing view before attaching the replacement, so the window
+  // never holds two views at once and drops its per-view listeners promptly.
   try {
     if (old) {
       mainWindow.removeBrowserView(old)
@@ -168,12 +233,34 @@ function recyclePlayerView() {
       }
     }
   } catch {}
+
+  playerView = createPlayerView()
+  mainWindow.addBrowserView(playerView)
+  resizePlayerView()
 }
 
 function resizePlayerView() {
   if (!mainWindow || !playerView) return
   const [w, h] = mainWindow.getContentSize()
-  playerView.setBounds({ x: 0, y: 0, width: w - SIDEBAR_WIDTH, height: h })
+  const reserved = SIDEBAR_WIDTH + (logsOpen ? LOG_PANEL_WIDTH : 0)
+  playerView.setBounds({ x: 0, y: 0, width: Math.max(0, w - reserved), height: h })
+}
+
+// Grow the window rightwards so opening the log panel doesn't shrink the video.
+// When maximised there's no room to grow, so the panel takes space from the
+// video instead — resizePlayerView derives that from the actual content size.
+function setLogsOpen(open) {
+  if (!mainWindow || mainWindow.isDestroyed() || logsOpen === open) return
+  logsOpen = open
+  if (!mainWindow.isMaximized() && !mainWindow.isFullScreen()) {
+    const b = mainWindow.getBounds()
+    mainWindow.setBounds({
+      ...b,
+      width: b.width + (open ? LOG_PANEL_WIDTH : -LOG_PANEL_WIDTH)
+    })
+  }
+  resizePlayerView()
+  broadcast()
 }
 
 // ── Broadcast state to renderer ───────────────────────────────────────────────
@@ -188,7 +275,8 @@ function broadcast() {
     requestsEnabled,
     volume,
     backupPlaylistUrl,
-    backupMode
+    backupMode,
+    logsOpen
   })
 }
 
@@ -212,8 +300,10 @@ function playNext() {
   if (queue.length === 0) {
     currentTrack = null
     if (backupPlaylistUrl) {
+      console.log('[PLAYER] Queue empty — switching to backup playlist')
       playBackupPlaylist()
     } else {
+      console.log('[PLAYER] Queue empty and no backup playlist — going idle')
       backupMode = false
       backupCurrentTrack = null
       backupLoadStartedAt = 0
@@ -229,14 +319,17 @@ function playNext() {
   currentTrack = queue.shift()
   isPaused = false
   broadcast()
+  console.log(`[PLAYER] Now playing: "${currentTrack.title}" (by ${currentTrack.requester}) — ${queue.length} still queued`)
 
   if (++loadsSinceRecycle >= RECYCLE_EVERY) recyclePlayerView()
-  playerView.webContents.loadURL(currentTrack.url)
+  const view = playerView
+  safeSetMuted(view, true)
+  view.webContents.loadURL(currentTrack.url)
 
-  playerView.webContents.once('did-finish-load', () => {
+  view.webContents.once('did-finish-load', () => {
     setTimeout(async () => {
       try {
-        const title = await playerView.webContents.executeJavaScript(`
+        const title = await safeExec(`
           document.querySelector('h1.ytd-watch-metadata yt-formatted-string')?.textContent?.trim()
           || document.querySelector('meta[property="og:title"]')?.content
           || document.title.replace(' - YouTube', '').trim()
@@ -246,35 +339,150 @@ function playNext() {
           currentTrack.title = title
           broadcast()
           pushStatusToBot()
+          console.log(`[PLAYER] Title resolved: "${title}"`)
+        } else if (!title) {
+          console.warn('[PLAYER] Could not read video title from the page')
         }
-        await playerView.webContents.executeJavaScript(`
+        await safeExec(`
           const p = document.querySelector('#movie_player')
           p?.setVolume(${volume})
           p?.playVideo()
         `)
-      } catch {}
+      } finally {
+        // Must always run — a skipped unmute leaves the player silent for good.
+        safeSetMuted(view, false)
+      }
     }, 2500)
   })
 }
 
+const VIDEO_ID_RE = /^[\w-]{11}$/
+
+// YouTube now renders playlist entries as lockupViewModel objects (the old
+// playlistVideoRenderer is gone). Collect them wherever they sit in the tree so
+// we don't depend on the exact nesting path, which YouTube reshuffles often.
+function collectLockups(obj, out, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 40) return out
+  if (Array.isArray(obj)) {
+    for (const v of obj) collectLockups(v, out, depth + 1)
+    return out
+  }
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === 'lockupViewModel' && v && typeof v === 'object') out.push(v)
+    else collectLockups(v, out, depth + 1)
+  }
+  return out
+}
+
+function firstVideoId(obj, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 25) return null
+  if (Array.isArray(obj)) {
+    for (const v of obj) { const r = firstVideoId(v, depth + 1); if (r) return r }
+    return null
+  }
+  for (const [k, v] of Object.entries(obj)) {
+    if (k === 'videoId' && typeof v === 'string' && VIDEO_ID_RE.test(v)) return v
+    const r = firstVideoId(v, depth + 1)
+    if (r) return r
+  }
+  return null
+}
+
+// A lockup's contentId is the video ID for video entries. The 11-char test also
+// filters out playlist/channel lockups, whose ids are longer.
+function lockupVideoId(lockup) {
+  if (typeof lockup.contentId === 'string' && VIDEO_ID_RE.test(lockup.contentId)) return lockup.contentId
+  return firstVideoId(lockup)
+}
+
+function findContinuationToken(obj, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 40) return null
+  if (Array.isArray(obj)) {
+    for (const v of obj) { const r = findContinuationToken(v, depth + 1); if (r) return r }
+    return null
+  }
+  const t = obj.continuationItemViewModel?.continuationCommand?.innertubeCommand?.continuationCommand?.token
+  if (t) return t
+  for (const v of Object.values(obj)) {
+    const r = findContinuationToken(v, depth + 1)
+    if (r) return r
+  }
+  return null
+}
+
+function addLockupIds(root, ids) {
+  for (const lockup of collectLockups(root, [])) {
+    const id = lockupVideoId(lockup)
+    if (id) ids.add(id)
+  }
+}
+
 async function getPlaylistVideoIds(listId) {
+  const ids = new Set()
+  const headers = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+    'Accept-Language': 'en-US,en;q=0.9'
+  }
+
   try {
-    const res = await fetch(`https://www.youtube.com/playlist?list=${listId}`, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9'
-      }
-    })
+    const res = await fetch(`https://www.youtube.com/playlist?list=${listId}`, { headers })
     if (!res.ok) return []
     const html = await res.text()
-    // playlistVideoRenderer entries are the videos that belong to the playlist
-    // (this excludes recommendations / sidebar videos elsewhere on the page)
-    const ids = new Set()
-    const re = /"playlistVideoRenderer":\{"videoId":"([a-zA-Z0-9_-]{11})"/g
+
+    // Fallback for the legacy layout, in case YouTube serves it to some clients
+    const legacy = /"playlistVideoRenderer":\{"videoId":"([\w-]{11})"/g
     let m
-    while ((m = re.exec(html)) !== null) ids.add(m[1])
+    while ((m = legacy.exec(html)) !== null) ids.add(m[1])
+
+    const dataMatch = html.match(/var\s+ytInitialData\s*=\s*(.+?);\s*<\/script>/)
+    if (!dataMatch) return Array.from(ids)
+
+    let initialData
+    try { initialData = JSON.parse(dataMatch[1]) } catch { return Array.from(ids) }
+
+    addLockupIds(initialData, ids)
+    console.log(`[PLAYER] Playlist page 1: ${ids.size} IDs`)
+
+    const apiKeyMatch = html.match(/"INNERTUBE_API_KEY":"([^"]+)"/)
+    let continuation = findContinuationToken(initialData)
+    if (!apiKeyMatch || !continuation) return Array.from(ids)
+
+    const clientVerMatch = html.match(/"clientVersion":"([^"]+)"/)
+    const clientVersion = clientVerMatch ? clientVerMatch[1] : '2.20240101.00.00'
+
+    const MAX_PAGES = 60
+    for (let page = 0; page < MAX_PAGES && continuation; page++) {
+      const browseRes = await fetch(
+        `https://www.youtube.com/youtubei/v1/browse?key=${apiKeyMatch[1]}&prettyPrint=false`,
+        {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            context: { client: { clientName: 'WEB', clientVersion } },
+            continuation
+          })
+        }
+      )
+      if (!browseRes.ok) break
+
+      let browseData
+      try { browseData = await browseRes.json() } catch { break }
+
+      const before = ids.size
+      addLockupIds(browseData, ids)
+      console.log(`[PLAYER] Playlist page ${page + 2}: +${ids.size - before} (${ids.size} total)`)
+      if (ids.size === before) break
+
+      const next = findContinuationToken(browseData)
+      if (!next || next === continuation) break
+      continuation = next
+    }
+
     return Array.from(ids)
-  } catch { return [] }
+  } catch (err) {
+    console.error(`[PLAYER] Playlist scrape failed: ${err.message}`)
+    return []
+  }
 }
 
 async function getPlaylistSeedVideoId(listId) {
@@ -311,6 +519,7 @@ function shuffle(arr) {
 // the new cycle opening on the exact song that just finished.
 function refillBackupBag() {
   if (backupAllIds.length === 0) { backupBag = []; return }
+  console.log(`[PLAYER] Starting new shuffle cycle over ${backupAllIds.length} songs (no repeats until it runs out)`)
   backupBag = shuffle(backupAllIds)
   if (backupBag.length > 1 && backupBag[0] === backupLastVideoId) {
     const j = 1 + Math.floor(Math.random() * (backupBag.length - 1))
@@ -330,6 +539,14 @@ async function safeExec(code) {
   try { return await wc.executeJavaScript(code) } catch { return null }
 }
 
+// Mute/unmute a specific view. Deferred unmutes can fire after a recycle has
+// already torn that view down, so never assume webContents is still there.
+function safeSetMuted(view, muted) {
+  const wc = view && view.webContents
+  if (!wc || wc.isDestroyed()) return
+  try { wc.setAudioMuted(muted) } catch {}
+}
+
 // Try to harvest playlist IDs from the YouTube player API in the BrowserView.
 // This works even for private/unlisted playlists because the view has the user's
 // login session.  Called from did-finish-load and from the poll loop as a retry.
@@ -347,12 +564,13 @@ async function tryHarvestPlaylistIds() {
     })()
   `)
   if (harvested && harvested.ids && harvested.ids.length > 0) {
-    const listId = extractPlaylistId(backupPlaylistUrl)
+    // Deliberately leave loadedPlaylistId unset: this is only YouTube's small
+    // in-page window, so the next playBackupPlaylist should retry the full
+    // scrape and upgrade to the complete list rather than treating it as final.
     backupAllIds = harvested.ids
-    if (listId) loadedPlaylistId = listId
     backupBag = []
     if (harvested.videoId) backupLastVideoId = harvested.videoId
-    console.log(`[PLAYER] Harvested ${harvested.ids.length} IDs from YouTube player`)
+    console.log(`[PLAYER] Harvested ${harvested.ids.length} IDs from YouTube player (partial)`)
   }
 }
 
@@ -361,6 +579,7 @@ async function tryHarvestPlaylistIds() {
 // next track. Recycles the view every RECYCLE_EVERY loads to keep memory flat.
 function loadBackupVideo(videoId) {
   if (!videoId) {
+    console.warn('[PLAYER] No backup song available — falling back to YouTube\'s next button')
     backupLoadStartedAt = Date.now()
     safeExec(`document.querySelector('.ytp-next-button')?.click()`)
     return
@@ -368,16 +587,22 @@ function loadBackupVideo(videoId) {
   backupMode = true
   backupLastVideoId = videoId
   backupLoadStartedAt = Date.now()
+  console.log(`[PLAYER] Backup song: ${videoId} — ${backupBag.length} of ${backupAllIds.length} left this cycle`)
   if (++loadsSinceRecycle >= RECYCLE_EVERY) recyclePlayerView()
   const view = playerView
+  safeSetMuted(view, true)
   view.webContents.loadURL(`https://www.youtube.com/watch?v=${videoId}`)
   view.webContents.once('did-finish-load', () => {
     setTimeout(async () => {
-      await safeExec(`
-        const p = document.querySelector('#movie_player')
-        if (typeof p?.setVolume === 'function') p.setVolume(${volume})
-        p?.playVideo?.()
-      `)
+      try {
+        await safeExec(`
+          const p = document.querySelector('#movie_player')
+          if (typeof p?.setVolume === 'function') p.setVolume(${volume})
+          p?.playVideo?.()
+        `)
+      } finally {
+        safeSetMuted(view, false)
+      }
     }, 2500)
   })
 }
@@ -421,19 +646,28 @@ async function playBackupPlaylist() {
   }
   if (++loadsSinceRecycle >= RECYCLE_EVERY) recyclePlayerView()
   const view = playerView
+  safeSetMuted(view, true)
   view.webContents.loadURL(url)
   view.webContents.once('did-finish-load', () => {
     setTimeout(async () => {
-      await safeExec(`
-        const p = document.querySelector('#movie_player')
-        if (typeof p?.setVolume === 'function') p.setVolume(${volume})
-      `)
-      tryHarvestPlaylistIds()
+      try {
+        await safeExec(`
+          const p = document.querySelector('#movie_player')
+          if (typeof p?.setVolume === 'function') p.setVolume(${volume})
+        `)
+        tryHarvestPlaylistIds()
+      } finally {
+        safeSetMuted(view, false)
+      }
     }, 3000)
   })
 }
 
-async function skipCurrent() {
+async function skipCurrent(source = 'unknown') {
+  const what = backupMode
+    ? `backup song ${backupLastVideoId}`
+    : `"${currentTrack ? currentTrack.title : 'nothing'}"`
+  console.log(`[PLAYER] Skip requested by ${source} — skipping ${what}`)
   if (backupMode) {
     // Advance to the next shuffled backup song ourselves
     loadBackupVideo(nextBackupVideoId())
@@ -449,6 +683,7 @@ function addToQueue(url, requester, title) {
 
   const playsNow = !currentTrack || backupMode
   const position = playsNow ? 1 : queue.length
+  console.log(`[PLAYER] Queued "${track.title}" by ${requester} at position ${position}`)
 
   if (backupMode) {
     backupMode = false
@@ -482,6 +717,7 @@ function startPollTimer() {
       const currentUrl = wc.getURL()
       const blockedMatch = currentUrl.match(/[?&]v=([^&]+)/)
       if (blockedMatch && BLOCKED_VIDEO_IDS.has(blockedMatch[1])) {
+        console.warn(`[PLAYER] Blocked video ${blockedMatch[1]} detected — moving on`)
         if (backupMode) loadBackupVideo(nextBackupVideoId())
         else if (backupPlaylistUrl) playBackupPlaylist()
         else wc.loadURL('about:blank')
@@ -538,6 +774,7 @@ function startPollTimer() {
         if (backupAllIds.length > 0 && info.videoId
             && info.videoId !== backupLastVideoId
             && backupLoadStartedAt > 0 && sinceLoad > 5000) {
+          console.warn(`[PLAYER] YouTube autoplayed ${info.videoId} on its own — taking back control`)
           loadBackupVideo(nextBackupVideoId())
           return
         }
@@ -547,6 +784,11 @@ function startPollTimer() {
         // so used to interrupt the page before it could finish loading.
         const ended = info.state === 0
         const stuck = info.state === -1 && backupLoadStartedAt > 0 && sinceLoad > 30000
+        if (stuck) {
+          console.warn(`[PLAYER] Backup song ${backupLastVideoId} never started within 30s — skipping it`)
+        } else if (ended) {
+          console.log('[PLAYER] Backup song finished')
+        }
         if (ended || stuck) loadBackupVideo(nextBackupVideoId())
         return
       }
@@ -569,6 +811,11 @@ function startPollTimer() {
         await safeExec(`document.querySelector('#movie_player')?.setVolume(${volume})`)
       }
       const videoChanged = currentTrack.videoId && info.videoId && info.videoId !== currentTrack.videoId
+      if (videoChanged) {
+        console.warn(`[PLAYER] Page navigated to ${info.videoId} unexpectedly — advancing queue`)
+      } else if (info.state === 0) {
+        console.log(`[PLAYER] Finished: "${currentTrack.title}"`)
+      }
       if (info.state === 0 || videoChanged) playNext()
     } catch {}
     finally { pollBusy = false }
@@ -577,7 +824,7 @@ function startPollTimer() {
 
 // ── IPC handlers (from renderer sidebar) ─────────────────────────────────────
 
-ipcMain.on('skip', () => skipCurrent())
+ipcMain.on('skip', () => skipCurrent('sidebar'))
 
 ipcMain.on('toggle-pause', async () => {
   if (!currentTrack && !backupMode) return
@@ -588,7 +835,10 @@ ipcMain.on('toggle-pause', async () => {
     )
     isPaused = !isPaused
     broadcast()
-  } catch {}
+    console.log(`[PLAYER] ${isPaused ? 'Paused' : 'Resumed'} playback`)
+  } catch (err) {
+    console.error(`[PLAYER] Pause/resume failed: ${err.message}`)
+  }
 })
 
 ipcMain.on('set-volume', async (_e, value) => {
@@ -601,13 +851,21 @@ ipcMain.on('set-volume', async (_e, value) => {
   } catch {}
 })
 
+ipcMain.on('toggle-logs', () => setLogsOpen(!logsOpen))
+
+ipcMain.handle('get-logs', () => logBuffer)
+
+ipcMain.on('clear-logs', () => { logBuffer.length = 0 })
+
 ipcMain.on('clear-queue', () => {
+  if (queue.length > 0) console.log(`[PLAYER] Queue cleared (${queue.length} removed)`)
   queue.length = 0
   broadcast()
 })
 
 ipcMain.on('remove-from-queue', (_e, index) => {
   if (index >= 0 && index < queue.length) {
+    console.log(`[PLAYER] Removed "${queue[index].title}" from the queue`)
     queue.splice(index, 1)
     broadcast()
   }
@@ -617,13 +875,17 @@ ipcMain.on('toggle-requests', () => {
   requestsEnabled = !requestsEnabled
   broadcast()
   pushStatusToBot()
+  console.log(`[PLAYER] Song requests ${requestsEnabled ? 'ENABLED' : 'DISABLED'}`)
 })
 
 ipcMain.on('set-backup-playlist', (_e, url) => {
   const prev = backupPlaylistUrl
   backupPlaylistUrl = url.trim()
   scheduleSave()
-  if (backupPlaylistUrl !== prev) resetBackupShuffle()
+  if (backupPlaylistUrl !== prev) {
+    console.log(`[PLAYER] Backup playlist saved: ${backupPlaylistUrl || '(none)'}`)
+    resetBackupShuffle()
+  }
   broadcast()
   if (!currentTrack && !backupMode && backupPlaylistUrl) playBackupPlaylist()
 })
@@ -631,6 +893,7 @@ ipcMain.on('set-backup-playlist', (_e, url) => {
 ipcMain.on('update-backup-playlist', (_e, url) => {
   backupPlaylistUrl = url.trim()
   scheduleSave()
+  console.log(`[PLAYER] Backup playlist updated, switching now: ${backupPlaylistUrl || '(none)'}`)
   resetBackupShuffle()
   broadcast()
   if (backupPlaylistUrl && (!currentTrack || backupMode)) playBackupPlaylist()
@@ -638,7 +901,10 @@ ipcMain.on('update-backup-playlist', (_e, url) => {
 
 ipcMain.handle('manual-sr', async (_e, url) => {
   const trimmed = (url || '').trim()
-  if (!isYouTubeUrl(trimmed)) return { ok: false, error: 'Invalid YouTube URL' }
+  if (!isYouTubeUrl(trimmed)) {
+    console.warn(`[PLAYER] Manual request rejected, not a YouTube URL: ${trimmed}`)
+    return { ok: false, error: 'Invalid YouTube URL' }
+  }
   let title = null
   try {
     const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(trimmed)}&format=json`)
@@ -646,7 +912,9 @@ ipcMain.handle('manual-sr', async (_e, url) => {
       const data = await res.json()
       title = data.title || null
     }
-  } catch { /* title stays null */ }
+  } catch (err) {
+    console.warn(`[PLAYER] Could not look up title for ${trimmed}: ${err.message}`)
+  }
   const position = addToQueue(trimmed, 'Manual', title)
   return { ok: true, title: title || trimmed, position }
 })
@@ -673,21 +941,24 @@ function startWebSocketServer() {
 
         if (msg.type === 'skip') {
           if (currentTrack || backupMode) {
-            skipCurrent()
+            skipCurrent('chat')
             ws.send(JSON.stringify({ ok: true, type: 'skipped' }))
           } else {
+            console.warn('[PLAYER] Chat skip ignored — nothing is playing')
             ws.send(JSON.stringify({ ok: false, error: 'nothing_playing' }))
           }
           return
         }
 
         if (!msg.url || !isYouTubeUrl(msg.url)) {
+          console.warn(`[PLAYER] Request from ${msg.requester || 'unknown'} rejected, bad URL: ${msg.url}`)
           ws.send(JSON.stringify({ ok: false, error: 'Invalid or non-YouTube URL' }))
           return
         }
         const position = addToQueue(msg.url, msg.requester || 'unknown', msg.title || null)
         ws.send(JSON.stringify({ ok: true, position }))
-      } catch {
+      } catch (err) {
+        console.error(`[PLAYER] Malformed message from bot: ${err.message}`)
         ws.send(JSON.stringify({ ok: false, error: 'Invalid message format' }))
       }
     })
@@ -737,6 +1008,8 @@ function isYouTubeUrl(url) {
 // ── App lifecycle ─────────────────────────────────────────────────────────────
 
 app.whenReady().then(() => {
+  installLogCapture()
+  console.log(`[PLAYER] SurferStalker Player v${app.getVersion()} starting (Electron ${process.versions.electron})`)
   loadSettings()
   createWindow()
   startWebSocketServer()

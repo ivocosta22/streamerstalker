@@ -10,5 +10,9 @@ contextBridge.exposeInMainWorld('playerAPI', {
   toggleRequests:   ()    => ipcRenderer.send('toggle-requests'),
   setBackupPlaylist:(url) => ipcRenderer.send('set-backup-playlist', url),
   updateBackupPlaylist:(url) => ipcRenderer.send('update-backup-playlist', url),
-  manualSr:(url) => ipcRenderer.invoke('manual-sr', url)
+  manualSr:(url) => ipcRenderer.invoke('manual-sr', url),
+  toggleLogs:       ()    => ipcRenderer.send('toggle-logs'),
+  clearLogs:        ()    => ipcRenderer.send('clear-logs'),
+  getLogs:          ()    => ipcRenderer.invoke('get-logs'),
+  onLog:            (cb)  => ipcRenderer.on('log', (_e, entry) => cb(entry))
 })

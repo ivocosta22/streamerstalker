@@ -21,12 +21,25 @@ const btnBackupUpdate  = document.getElementById('btn-backup-update')
 const manualSrInput    = document.getElementById('manual-sr-input')
 const btnManualSr      = document.getElementById('btn-manual-sr')
 const manualSrStatus   = document.getElementById('manual-sr-status')
+const btnLogs          = document.getElementById('btn-logs')
+const logPanel         = document.getElementById('log-panel')
+const logOutput        = document.getElementById('log-output')
+const logEmpty         = document.getElementById('log-empty')
+const btnLogClear      = document.getElementById('btn-log-clear')
+const btnLogClose      = document.getElementById('btn-log-close')
 
 function thumbUrl(videoId) {
   return videoId ? `https://img.youtube.com/vi/${videoId}/mqdefault.jpg` : null
 }
 
-function renderState({ current, queue, isPaused, botConnected, requestsEnabled, volume, backupPlaylistUrl, backupMode }) {
+function renderState({ current, queue, isPaused, botConnected, requestsEnabled, volume, backupPlaylistUrl, backupMode, logsOpen }) {
+  // Logs panel — scroll to the end when it becomes visible, since scrolling a
+  // hidden element is a no-op and it would otherwise open part-way up.
+  const wasOpen = logPanel.classList.contains('open')
+  logPanel.classList.toggle('open', !!logsOpen)
+  btnLogs.classList.toggle('active', !!logsOpen)
+  if (logsOpen && !wasOpen) logOutput.scrollTop = logOutput.scrollHeight
+
   // Volume — only sync if the user isn't actively dragging
   if (document.activeElement !== volumeSlider) {
     volumeSlider.value = volume
@@ -183,6 +196,43 @@ manualSrInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit
 backupInput.addEventListener('blur', () => window.playerAPI.setBackupPlaylist(backupInput.value))
 backupInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') backupInput.blur() })
 btnBackupUpdate.addEventListener('click', () => window.playerAPI.updateBackupPlaylist(backupInput.value))
+
+// ── Logs ─────────────────────────────────────────────────────────────────────
+
+const MAX_LOG_LINES = 1000
+const LEVEL_CLASS = { log: 'lg-log', warn: 'lg-warn', error: 'lg-error' }
+
+function appendLog(entry) {
+  if (logEmpty.parentNode) logEmpty.remove()
+
+  const atBottom = logOutput.scrollHeight - logOutput.scrollTop - logOutput.clientHeight < 40
+
+  const line = document.createElement('div')
+  line.className = `log-line ${LEVEL_CLASS[entry.level] || 'lg-log'}`
+
+  const time = document.createElement('span')
+  time.className = 'log-time'
+  time.textContent = new Date(entry.t).toTimeString().slice(0, 8)
+
+  line.appendChild(time)
+  // textContent, never innerHTML — log lines carry arbitrary page/error text
+  line.appendChild(document.createTextNode(entry.text))
+  logOutput.appendChild(line)
+
+  while (logOutput.childElementCount > MAX_LOG_LINES) logOutput.removeChild(logOutput.firstChild)
+  if (atBottom) logOutput.scrollTop = logOutput.scrollHeight
+}
+
+btnLogs.addEventListener('click',     () => window.playerAPI.toggleLogs())
+btnLogClose.addEventListener('click', () => window.playerAPI.toggleLogs())
+btnLogClear.addEventListener('click', () => {
+  window.playerAPI.clearLogs()
+  logOutput.textContent = ''
+  logOutput.appendChild(logEmpty)
+})
+
+window.playerAPI.onLog(appendLog)
+window.playerAPI.getLogs().then(entries => entries.forEach(appendLog))
 
 // ── State updates from main process ──────────────────────────────────────────
 

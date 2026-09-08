@@ -65,6 +65,115 @@
 
     #bot-dot.connected { background: #00b16a; }
 
+    #header-right {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    #btn-logs {
+      background: transparent;
+      color: #adadb8;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      padding: 4px 8px;
+      border: 1px solid #3d3d43;
+      border-radius: 4px;
+    }
+
+    #btn-logs:hover { color: #efeff1; border-color: #6d6d7a; }
+
+    #btn-logs.active {
+      background: #bf94ff22;
+      color: #bf94ff;
+      border-color: #bf94ff55;
+    }
+
+    /* ── Log panel ── */
+    #log-panel {
+      width: 460px;
+      height: 100vh;
+      background: #0a0a0c;
+      border-left: 1px solid #2d2d31;
+      display: none;
+      flex-direction: column;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+
+    #log-panel.open { display: flex; }
+
+    #log-header {
+      padding: 10px 12px;
+      border-bottom: 1px solid #2d2d31;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-shrink: 0;
+    }
+
+    #log-header .label {
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      color: #adadb8;
+      text-transform: uppercase;
+    }
+
+    #log-actions { display: flex; gap: 6px; }
+
+    #log-actions button {
+      background: transparent;
+      color: #adadb8;
+      font-size: 10px;
+      font-weight: 600;
+      padding: 3px 8px;
+      border: 1px solid #3d3d43;
+      border-radius: 4px;
+    }
+
+    #log-actions button:hover { color: #efeff1; border-color: #6d6d7a; }
+
+    #log-output {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: auto;
+      padding: 8px 10px;
+      font-family: Consolas, 'Courier New', monospace;
+      font-size: 11px;
+      line-height: 1.5;
+      user-select: text;
+      cursor: text;
+    }
+
+    #log-output::-webkit-scrollbar { width: 6px; height: 6px; }
+    #log-output::-webkit-scrollbar-track { background: transparent; }
+    #log-output::-webkit-scrollbar-thumb { background: #3d3d43; border-radius: 3px; }
+
+    .log-line {
+      white-space: pre-wrap;
+      word-break: break-word;
+      padding: 1px 0;
+    }
+
+    .log-time {
+      color: #5c5c66;
+      margin-right: 8px;
+    }
+
+    .lg-log   { color: #c9c9d1; }
+    .lg-warn  { color: #f9c74f; }
+    .lg-error { color: #f87171; }
+
+    #log-empty {
+      color: #3d3d43;
+      font-size: 11px;
+      text-align: center;
+      padding: 20px 0;
+    }
+
     /* ── Now Playing ── */
     #now-playing {
       padding: 16px;
@@ -467,9 +576,12 @@
 
     <div id="header">
       <h1>Song Queue</h1>
-      <div id="bot-status">
-        <div id="bot-dot"></div>
-        <span id="bot-label">Bot offline</span>
+      <div id="header-right">
+        <button id="btn-logs" title="Show logs">Logs</button>
+        <div id="bot-status">
+          <div id="bot-dot"></div>
+          <span id="bot-label">Bot offline</span>
+        </div>
       </div>
     </div>
 
@@ -530,6 +642,18 @@
     </div>
 
   </div>
+
+  <div id="log-panel">
+    <div id="log-header">
+      <div class="label">Player Logs</div>
+      <div id="log-actions">
+        <button id="btn-log-clear">Clear</button>
+        <button id="btn-log-close">Close</button>
+      </div>
+    </div>
+    <div id="log-output"><div id="log-empty">No logs yet</div></div>
+  </div>
+
   <script src="index.js"></script>
 </body>
 </html>
