@@ -89,19 +89,77 @@ function isYouTubeUrl(url) {
   } catch { return false }
 }
 
+function findVideoRenderers(obj, out, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 30) return out
+  if (Array.isArray(obj)) {
+    for (const v of obj) findVideoRenderers(v, out, depth + 1)
+    return out
+  }
+  if (obj.videoRenderer && obj.videoRenderer.videoId) {
+    out.push(obj.videoRenderer)
+    return out
+  }
+  for (const v of Object.values(obj)) findVideoRenderers(v, out, depth + 1)
+  return out
+}
+
+async function searchYouTube(query) {
+  try {
+    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`
+    const res = await fetch(searchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
+      }
+    })
+    if (!res.ok) return null
+    const html = await res.text()
+
+    const dataMatch = html.match(/var\s+ytInitialData\s*=\s*(.+?);\s*<\/script>/)
+    if (!dataMatch) return null
+
+    let initialData
+    try { initialData = JSON.parse(dataMatch[1]) } catch { return null }
+
+    const renderers = findVideoRenderers(initialData, [])
+    if (renderers.length === 0) return null
+
+    const video = renderers[0]
+    const videoId = video.videoId
+    const title = video.title?.runs?.map(r => r.text).join('') || video.title?.simpleText || null
+    const url = `https://www.youtube.com/watch?v=${videoId}`
+
+    _logColor('cyan', `[PLAYER] YouTube search "${query}" → "${title}" (${videoId})`)
+    return { url, title, videoId }
+  } catch (err) {
+    _logColor('red', `[PLAYER] YouTube search failed for "${query}": ${err.message}`)
+    return null
+  }
+}
+
 /**
  * Validates, fetches the title, and sends a song request to the player.
+ * Accepts a YouTube URL or free-text search terms.
  *
- * @param {string} url
+ * @param {string} input  YouTube URL or search query
  * @param {string} requester
- * @returns {Promise<{ result: 'queued'|'invalid_url'|'player_offline'|'requests_disabled', title?: string, position?: number }>}
+ * @returns {Promise<{ result: 'queued'|'invalid_url'|'no_results'|'player_offline'|'requests_disabled', title?: string, position?: number }>}
  */
-async function enqueue(url, requester) {
-  if (!isYouTubeUrl(url)) return { result: 'invalid_url' }
+async function enqueue(input, requester) {
   if (!ready || !socket) return { result: 'player_offline' }
   if (!requestsEnabled) return { result: 'requests_disabled' }
 
-  const title = await fetchTitle(url) || url
+  let url = input
+  let title = null
+
+  if (isYouTubeUrl(input)) {
+    title = await fetchTitle(input) || input
+  } else {
+    const result = await searchYouTube(input)
+    if (!result) return { result: 'no_results' }
+    url = result.url
+    title = result.title || url
+  }
 
   return new Promise((resolve) => {
     const timeout = setTimeout(() => {

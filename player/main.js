@@ -899,24 +899,35 @@ ipcMain.on('update-backup-playlist', (_e, url) => {
   if (backupPlaylistUrl && (!currentTrack || backupMode)) playBackupPlaylist()
 })
 
-ipcMain.handle('manual-sr', async (_e, url) => {
-  const trimmed = (url || '').trim()
-  if (!isYouTubeUrl(trimmed)) {
-    console.warn(`[PLAYER] Manual request rejected, not a YouTube URL: ${trimmed}`)
-    return { ok: false, error: 'Invalid YouTube URL' }
-  }
+ipcMain.handle('manual-sr', async (_e, input) => {
+  const trimmed = (input || '').trim()
+  if (!trimmed) return { ok: false, error: 'Enter a YouTube URL or song name' }
+
+  let url = trimmed
   let title = null
-  try {
-    const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(trimmed)}&format=json`)
-    if (res.ok) {
-      const data = await res.json()
-      title = data.title || null
+
+  if (isYouTubeUrl(trimmed)) {
+    try {
+      const res = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(trimmed)}&format=json`)
+      if (res.ok) {
+        const data = await res.json()
+        title = data.title || null
+      }
+    } catch (err) {
+      console.warn(`[PLAYER] Could not look up title for ${trimmed}: ${err.message}`)
     }
-  } catch (err) {
-    console.warn(`[PLAYER] Could not look up title for ${trimmed}: ${err.message}`)
+  } else {
+    const result = await searchYouTube(trimmed)
+    if (!result) {
+      console.warn(`[PLAYER] Manual search found nothing for: ${trimmed}`)
+      return { ok: false, error: `No results for "${trimmed}"` }
+    }
+    url = result.url
+    title = result.title
   }
-  const position = addToQueue(trimmed, 'Manual', title)
-  return { ok: true, title: title || trimmed, position }
+
+  const position = addToQueue(url, 'Manual', title)
+  return { ok: true, title: title || url, position }
 })
 
 // ── WebSocket server (SurferStalker bot connects here) ────────────────────────
@@ -1003,6 +1014,54 @@ function isYouTubeUrl(url) {
     const isShort = u.hostname === 'youtu.be' && u.pathname.length > 1
     return isWatch || isShort
   } catch { return false }
+}
+
+function findVideoRenderers(obj, out, depth = 0) {
+  if (!obj || typeof obj !== 'object' || depth > 30) return out
+  if (Array.isArray(obj)) {
+    for (const v of obj) findVideoRenderers(v, out, depth + 1)
+    return out
+  }
+  if (obj.videoRenderer && obj.videoRenderer.videoId) {
+    out.push(obj.videoRenderer)
+    return out
+  }
+  for (const v of Object.values(obj)) findVideoRenderers(v, out, depth + 1)
+  return out
+}
+
+async function searchYouTube(query) {
+  try {
+    const searchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(query)}`
+    const res = await fetch(searchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36',
+        'Accept-Language': 'en-US,en;q=0.9'
+      }
+    })
+    if (!res.ok) return null
+    const html = await res.text()
+
+    const dataMatch = html.match(/var\s+ytInitialData\s*=\s*(.+?);\s*<\/script>/)
+    if (!dataMatch) return null
+
+    let initialData
+    try { initialData = JSON.parse(dataMatch[1]) } catch { return null }
+
+    const renderers = findVideoRenderers(initialData, [])
+    if (renderers.length === 0) return null
+
+    const video = renderers[0]
+    const videoId = video.videoId
+    const title = video.title?.runs?.map(r => r.text).join('') || video.title?.simpleText || null
+    const url = `https://www.youtube.com/watch?v=${videoId}`
+
+    console.log(`[PLAYER] YouTube search "${query}" → "${title}" (${videoId})`)
+    return { url, title, videoId }
+  } catch (err) {
+    console.error(`[PLAYER] YouTube search failed for "${query}": ${err.message}`)
+    return null
+  }
 }
 
 // ── App lifecycle ─────────────────────────────────────────────────────────────

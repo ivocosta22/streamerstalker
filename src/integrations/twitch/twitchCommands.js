@@ -264,14 +264,16 @@ function createCommands(context) {
     return ''
   }
 
-  const srCommand = async (url) => {
+  const srCommand = async (...args) => {
     const caller = botState.commandCaller
-    if (!url) return `@${caller} usage: !sr <YouTube URL>`
-    const { result, title, position } = await songRequestClient.enqueue(url, caller)
+    const input = args.join(' ').trim()
+    if (!input) return `@${caller} usage: !sr <YouTube URL or song name>`
+    const { result, title, position } = await songRequestClient.enqueue(input, caller)
     if (result === 'queued') {
       const pos = position ? `at position #${position}` : 'to the queue'
-      return `@${caller} added "${title}" ${pos} - ${url}`
+      return `@${caller} added "${title}" ${pos}`
     }
+    if (result === 'no_results')        return `@${caller} couldn't find a video for "${input}".`
     if (result === 'invalid_url')       return `@${caller} that doesn't look like a valid YouTube link.`
     if (result === 'requests_disabled') return `@${caller} song requests are currently disabled. Try again later!`
     return `@${caller} the song request player isn't running right now. Please try again later!`
