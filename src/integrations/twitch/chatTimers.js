@@ -2,7 +2,11 @@ const fs = require('fs')
 const path = require('path')
 const { isStreamLive, getStreamInfo, getChannelInformation, sendChatAnnouncement } = require('./twitchAPI')
 
-const TIMERS_PATH = path.resolve(__dirname, '../../config/timers.json')
+// Overridable for the same reason as the data directory: a test run must not
+// rewrite the timers the live bot is reading.
+const TIMERS_PATH = process.env.SURFERSTALKER_TIMERS_PATH
+  ? path.resolve(process.env.SURFERSTALKER_TIMERS_PATH)
+  : path.resolve(__dirname, '../../config/timers.json')
 const CHAT_COUNT_WINDOW_MS = 5 * 60 * 1000
 const LIVE_CHECK_INTERVAL_MS = 60 * 1000
 const GLOBAL_TIMER_COOLDOWN_MS = 5 * 60 * 1000
@@ -65,14 +69,22 @@ function checkTimers() {
 
   if (eligible.length === 0) return
 
-  const timer = eligible[Math.floor(Math.random() * eligible.length)]
+  // Round-robin by staleness rather than a random pick. Picking randomly and
+  // then resetting every eligible timer meant an unlucky one kept being pushed
+  // back another full interval, so some timers were seen far less than their
+  // configured interval suggested. Only the timer that actually fired resets.
+  eligible.sort((a, b) => a.lastSent - b.lastSent)
+  const oldest = eligible[0].lastSent
+  const stalest = eligible.filter(t => t.lastSent === oldest)
+  const timer = stalest[Math.floor(Math.random() * stalest.length)]
+
   const msg = timer.messages[timer.messageIndex % timer.messages.length]
   timer.messageIndex = (timer.messageIndex + 1) % timer.messages.length
-  for (const t of eligible) t.lastSent = now
+  timer.lastSent = now
   lastGlobalSend = now
 
   _say(msg)
-  _logColor('cyan', `[TIMERS] Sent timer "${timer.name}": ${msg}`)
+  _logColor('cyan', `[SYSTEM] Sent timer "${timer.name}": ${msg}`)
 }
 
 async function announceGoLive() {
@@ -132,4 +144,68 @@ function startChatTimers({ say, broadcasterId, moderatorId, pingList, onGoLive, 
   setInterval(pollLiveStatus, LIVE_CHECK_INTERVAL_MS)
 }
 
-module.exports = { startChatTimers, recordChatLine }
+/** Raw timer definitions as stored on disk, including disabled ones. */
+function getTimers() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(TIMERS_PATH, 'utf-8'))
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Validates and writes the whole timer list.
+ * The fs.watch in startChatTimers picks the file back up, so a save takes
+ * effect without a restart and without this needing to touch live state.
+ *
+ * @returns {{ok: true, timers: object[]} | {ok: false, error: string}}
+ */
+function saveTimers(list) {
+  if (!Array.isArray(list)) return { ok: false, error: 'expected a list of timers' }
+  if (list.length > 100) return { ok: false, error: 'too many timers' }
+
+  const seen = new Set()
+  const clean = []
+
+  for (const entry of list) {
+    const name = String(entry?.name ?? '').trim()
+    if (!name) return { ok: false, error: 'every timer needs a name' }
+    if (name.length > 40) return { ok: false, error: `"${name}" is too long for a name` }
+    if (seen.has(name.toLowerCase())) return { ok: false, error: `duplicate timer name "${name}"` }
+    seen.add(name.toLowerCase())
+
+    const messages = (Array.isArray(entry.messages) ? entry.messages : [])
+      .map(m => String(m).trim())
+      .filter(Boolean)
+    if (messages.length === 0) return { ok: false, error: `"${name}" needs at least one message` }
+    if (messages.some(m => m.length > 450)) {
+      return { ok: false, error: `a message in "${name}" is too long for Twitch chat` }
+    }
+
+    const num = (value, fallback) => {
+      const n = Math.floor(Number(value))
+      return Number.isFinite(n) && n >= 0 && n <= 10000 ? n : fallback
+    }
+
+    clean.push({
+      name,
+      enabled: entry.enabled !== false,
+      onlineIntervalMinutes: num(entry.onlineIntervalMinutes, 15),
+      offlineIntervalMinutes: num(entry.offlineIntervalMinutes, 30),
+      chatLinesRequired: num(entry.chatLinesRequired, 0),
+      messages
+    })
+  }
+
+  try {
+    fs.writeFileSync(TIMERS_PATH, JSON.stringify(clean, null, 2))
+  } catch (err) {
+    return { ok: false, error: `could not save: ${err.message}` }
+  }
+
+  loadTimers()
+  return { ok: true, timers: clean }
+}
+
+module.exports = { startChatTimers, recordChatLine, getTimers, saveTimers }

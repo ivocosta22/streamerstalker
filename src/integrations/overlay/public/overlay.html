@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>SurferStalker Overlay</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: transparent;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---- Random-position stage: !showemote ---- */
+  #stage {
+    position: absolute;
+    pointer-events: none;
+    opacity: 0;
+    transform: scale(0.82);
+    transition: opacity 420ms ease, transform 420ms cubic-bezier(.2, .9, .3, 1.2);
+    filter: drop-shadow(0 6px 18px rgba(0, 0, 0, .55));
+  }
+
+  #stage img {
+    max-width: 40vw;
+    max-height: 40vh;
+    image-rendering: -webkit-optimize-contrast;
+  }
+
+  #stage.visible { opacity: 1; transform: scale(1); }
+
+  /* ---- Bottom-left: emote streaks ---- */
+  #streak {
+    position: absolute;
+    left: 28px;
+    bottom: 28px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 20px 12px 14px;
+    border-radius: 14px;
+    background: rgba(14, 14, 16, .82);
+    border: 1px solid rgba(191, 148, 255, .35);
+    box-shadow: 0 8px 26px rgba(0, 0, 0, .5);
+    opacity: 0;
+    transform: translateY(14px);
+    transition: opacity 300ms ease, transform 300ms ease;
+  }
+
+  #streak.visible { opacity: 1; transform: translateY(0); }
+
+  #streak img { width: 52px; height: 52px; object-fit: contain; }
+
+  #streak-text {
+    font-size: 26px;
+    font-weight: 700;
+    color: #efeff1;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, .7);
+    white-space: nowrap;
+  }
+
+  /* Pops once per increment to make the count feel alive. */
+  #streak-text.bump { animation: bump 260ms ease; }
+  @keyframes bump {
+    0%   { transform: scale(1); }
+    45%  { transform: scale(1.22); }
+    100% { transform: scale(1); }
+  }
+
+  /* ---- Top-centre: pyramid callout ---- */
+  #pyramid {
+    position: absolute;
+    top: 40px;
+    left: 50%;
+    transform: translate(-50%, -16px);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 24px;
+    border-radius: 14px;
+    background: rgba(14, 14, 16, .85);
+    border: 1px solid rgba(250, 204, 21, .5);
+    box-shadow: 0 8px 26px rgba(0, 0, 0, .5);
+    opacity: 0;
+    transition: opacity 350ms ease, transform 350ms ease;
+  }
+
+  #pyramid.visible { opacity: 1; transform: translate(-50%, 0); }
+  #pyramid img { width: 44px; height: 44px; object-fit: contain; }
+  #pyramid-text {
+    font-size: 24px;
+    font-weight: 700;
+    color: #facc15;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, .7);
+    white-space: nowrap;
+  }
+
+  /* Visible only when opened in a normal browser, never in OBS. */
+  #hint {
+    position: absolute;
+    top: 8px;
+    left: 8px;
+    font-size: 12px;
+    color: rgba(255, 255, 255, .75);
+    background: rgba(0, 0, 0, .6);
+    padding: 6px 10px;
+    border-radius: 6px;
+    display: none;
+  }
+</style>
+</head>
+<body>
+  <div id="stage"><img id="stage-img" alt="" /></div>
+
+  <div id="streak">
+    <img id="streak-img" alt="" />
+    <span id="streak-text"></span>
+  </div>
+
+  <div id="pyramid">
+    <img id="pyramid-img" alt="" />
+    <span id="pyramid-text"></span>
+  </div>
+
+  <div id="hint"></div>
+
+<script>
+(function () {
+  'use strict'
+
+  var stage      = document.getElementById('stage')
+  var stageImg   = document.getElementById('stage-img')
+  var streakBox  = document.getElementById('streak')
+  var streakImg  = document.getElementById('streak-img')
+  var streakText = document.getElementById('streak-text')
+  var pyrBox     = document.getElementById('pyramid')
+  var pyrImg     = document.getElementById('pyramid-img')
+  var pyrText    = document.getElementById('pyramid-text')
+  var hint       = document.getElementById('hint')
+
+  var cfg = { showMs: 3000, streakHoldMs: 6000 }
+
+  var stageTimer = null
+  var streakTimer = null
+  var pyrTimer = null
+
+  // OBS allows autoplay; a normal browser tab does not until the page is
+  // clicked, so surface that instead of failing silently during testing.
+  var audioBlocked = false
+  function note(msg) {
+    hint.textContent = msg
+    hint.style.display = msg ? 'block' : 'none'
+  }
+
+  // Random position avoiding bottom-left 220×120 zone where streak lives.
+  function randomiseStagePosition() {
+    var margin = 60
+    var maxX = window.innerWidth - margin * 2
+    var maxY = window.innerHeight - margin * 2
+    var x, y, attempts = 0
+    do {
+      x = margin + Math.random() * maxX
+      y = margin + Math.random() * maxY
+      attempts++
+    } while (x < 280 && y > window.innerHeight - 160 && attempts < 20)
+    stage.style.left = x + 'px'
+    stage.style.top = y + 'px'
+  }
+
+  function showEmote(url) {
+    if (!url) return
+    clearTimeout(stageTimer)
+    randomiseStagePosition()
+    stageImg.src = url
+    requestAnimationFrame(function () { stage.classList.add('visible') })
+    stageTimer = setTimeout(function () {
+      stage.classList.remove('visible')
+    }, cfg.showMs)
+  }
+
+  function showStreak(emote, url, count) {
+    clearTimeout(streakTimer)
+    if (url) { streakImg.src = url; streakImg.style.display = '' }
+    else streakImg.style.display = 'none'
+    streakText.textContent = 'x' + count + ' streak!'
+
+    streakBox.classList.add('visible')
+    streakText.classList.remove('bump')
+    void streakText.offsetWidth
+    streakText.classList.add('bump')
+
+    streakTimer = setTimeout(function () {
+      streakBox.classList.remove('visible')
+    }, cfg.streakHoldMs)
+  }
+
+  function hideStreak() {
+    clearTimeout(streakTimer)
+    streakBox.classList.remove('visible')
+  }
+
+  function showPyramid(emote, url, width, user) {
+    clearTimeout(pyrTimer)
+    if (url) { pyrImg.src = url; pyrImg.style.display = '' }
+    else pyrImg.style.display = 'none'
+    pyrText.textContent = width + '-width pyramid by ' + user + '!'
+    pyrBox.classList.add('visible')
+    pyrTimer = setTimeout(function () {
+      pyrBox.classList.remove('visible')
+    }, 6000)
+  }
+
+  function playSound(url, volume) {
+    if (!url) return
+    var audio = new Audio(url)
+    audio.volume = typeof volume === 'number' ? Math.max(0, Math.min(1, volume)) : 0.9
+    var played = audio.play()
+    if (played && played.catch) {
+      played.catch(function () {
+        if (audioBlocked) return
+        audioBlocked = true
+        note('Audio is blocked — click this page once. (Not needed in OBS.)')
+      })
+    }
+  }
+
+  function handle(event) {
+    switch (event.type) {
+      case 'config':
+        if (event.showMs) cfg.showMs = event.showMs
+        if (event.streakHoldMs) cfg.streakHoldMs = event.streakHoldMs
+        break
+      case 'emote':        showEmote(event.url); break
+      case 'sound':        playSound(event.url, event.volume); break
+      case 'streak':       showStreak(event.emote, event.url, event.count); break
+      case 'streakEnd':    hideStreak(); break
+      case 'pyramid':      showPyramid(event.emote, event.url, event.width, event.user); break
+      case 'test':
+        showEmote(event.url)
+        showStreak(event.emote || 'TEST', event.url, event.count || 3)
+        break
+    }
+  }
+
+  // EventSource reconnects by itself, so there is no retry logic to write here.
+  var stream = new EventSource('/overlay/events')
+
+  stream.onmessage = function (msg) {
+    try { handle(JSON.parse(msg.data)) } catch (err) {}
+  }
+
+  stream.onopen = function () { note('') }
+
+  stream.onerror = function () {
+    note('Disconnected from SurferStalker — retrying...')
+  }
+
+  document.addEventListener('click', function () {
+    audioBlocked = false
+    note('')
+  })
+})()
+</script>
+</body>
+</html>

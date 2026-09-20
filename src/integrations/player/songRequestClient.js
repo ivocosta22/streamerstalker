@@ -11,6 +11,42 @@ let _logColor = () => {}
 let _onRequestsToggled = null
 let _reconnectDelay = RECONNECT_MIN_MS
 
+// Mirror of the player's own state, refreshed by every status frame. The web
+// player page renders from this, so it stays a plain snapshot with no methods.
+let mirror = {
+  connected: false,
+  current: null,
+  queue: [],
+  isPaused: false,
+  volume: 100,
+  requestsEnabled: true,
+  backupMode: false,
+  backupPlaylistUrl: null,
+  // A player built before the web page existed sends no queue and ignores
+  // control frames. Detecting it lets /player say so instead of looking broken.
+  legacy: false
+}
+
+const stateSubscribers = new Set()
+let warnedLegacy = false
+
+function publishState() {
+  const snapshot = getState()
+  for (const fn of stateSubscribers) {
+    try { fn(snapshot) } catch {}
+  }
+}
+
+function getState() {
+  return { ...mirror, queue: mirror.queue.map(t => ({ ...t })), connected: ready }
+}
+
+/** @returns {() => void} unsubscribe */
+function onStateChange(fn) {
+  stateSubscribers.add(fn)
+  return () => stateSubscribers.delete(fn)
+}
+
 // FIFO queue of callbacks waiting for a WS response (enqueue ack)
 const pendingCallbacks = []
 
@@ -29,6 +65,8 @@ function connect() {
     socket = null
     currentSong = null
     backupPlaylistUrl = null
+    mirror = { ...mirror, connected: false, current: null, queue: [], backupMode: false }
+    publishState()
     if (wasReady) {
       _reconnectDelay = RECONNECT_MIN_MS
       _logColor('yellow', '[PLAYER] ⚠️ Player disconnected — will retry')
@@ -40,6 +78,7 @@ function connect() {
   ws.onopen = () => {
     ready = true
     _reconnectDelay = RECONNECT_MIN_MS
+    publishState()
     _logColor('green', '[PLAYER] ✅ Connected to song request player')
   }
 
@@ -57,6 +96,27 @@ function connect() {
         }
         if ('current' in msg) currentSong = msg.current
         if ('backupPlaylistUrl' in msg) backupPlaylistUrl = msg.backupPlaylistUrl || null
+
+        // Fields below arrive only from a player new enough to send them, so
+        // each is merged individually rather than replacing the whole mirror.
+        mirror = {
+          ...mirror,
+          connected: true,
+          requestsEnabled,
+          backupPlaylistUrl,
+          current: 'current' in msg ? msg.current : mirror.current,
+          queue: Array.isArray(msg.queue) ? msg.queue : mirror.queue,
+          isPaused: typeof msg.isPaused === 'boolean' ? msg.isPaused : mirror.isPaused,
+          volume: typeof msg.volume === 'number' ? msg.volume : mirror.volume,
+          backupMode: typeof msg.backupMode === 'boolean' ? msg.backupMode : mirror.backupMode,
+          legacy: !('queue' in msg)
+        }
+
+        if (mirror.legacy && !warnedLegacy) {
+          warnedLegacy = true
+          _logColor('yellow', '[PLAYER] ⚠️ The player app predates the web player page — rebuild it (npm start in player/) for the queue and controls to work')
+        }
+        publishState()
         return
       }
       // Any non-status message is an ack for a pending enqueue
@@ -192,10 +252,33 @@ function getBackupPlaylistUrl() {
   return backupPlaylistUrl
 }
 
+/**
+ * Sends a control command to the player.
+ * Used by the web player page; chat has no access to these.
+ *
+ * @param {'pause'|'volume'|'clearQueue'|'removeFromQueue'|'toggleRequests'|'setBackupPlaylist'} action
+ * @returns {boolean} false when the player isn't connected
+ */
+function control(action, value) {
+  if (!ready || !socket) return false
+  socket.send(JSON.stringify({ type: 'control', action, value }))
+  return true
+}
+
 function start(logColor, onRequestsToggled) {
   _logColor = logColor
   _onRequestsToggled = onRequestsToggled || null
   connect()
 }
 
-module.exports = { start, enqueue, skip, getCurrentSong, getBackupPlaylistUrl }
+module.exports = {
+  start,
+  enqueue,
+  skip,
+  getCurrentSong,
+  getBackupPlaylistUrl,
+  getState,
+  onStateChange,
+  control,
+  isConnected: () => ready
+}

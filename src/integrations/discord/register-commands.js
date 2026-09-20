@@ -6,7 +6,7 @@
  * This script deploys guild-specific slash commands using Discord REST API.
  *
  * Usage:
- *   node src/discord/register-commands.js
+ *   node src/integrations/discord/register-commands.js
  *
  * Notes:
  * - Guild commands update instantly
@@ -15,13 +15,10 @@
  * This script should be run manually when commands change.
  */
 
+require('dotenv').config()
 const { REST, Routes, ApplicationCommandOptionType } = require('discord.js')
-const { logColor } = require('../../utils/logger')
 const { discord } = require('../../config/env')
 
-// ============================================================
-// Slash Command Definitions
-// ============================================================
 const commands = [
     {
         name: 'ping',
@@ -49,11 +46,20 @@ const commands = [
         name: 'coinflip',
         description: 'Flip a coin (heads or tails)',
     },
+    {
+        name: 'rank',
+        description: 'Look up a League of Legends rank',
+        options: [
+            {
+                name: 'username',
+                description: 'Riot ID (e.g. Delfortin#1701). Leave empty for streamer accounts.',
+                type: ApplicationCommandOptionType.String,
+                required: false,
+            },
+        ]
+    },
 ]
 
-// ============================================================
-// Command Registration Function
-// ============================================================
 async function registerCommands() {
 
   if (!discord.botToken || !discord.botId || !discord.serverId) {
@@ -65,28 +71,24 @@ async function registerCommands() {
 
   try {
 
-    logColor('yellow', '[DISCORD] ⚠️ Registering slash commands...')
+    console.log('Registering slash commands...')
 
     await rest.put(
       Routes.applicationGuildCommands(
         discord.botId,
         discord.serverId
       ),
-      { body: slashCommands }
+      { body: commands }
     )
 
-    logColor('green', '[DISCORD] ✅ Slash commands registered successfully')
+    console.log('Slash commands registered successfully')
 
   } catch (error) {
 
-    logColor('red', `[DISCORD] ❌ Failed to register slash commands: ${error.message}`, error)
+    console.error(`Failed to register slash commands: ${error.message}`)
     process.exit(1)
 
   }
 }
-
-// ============================================================
-// Execute Script
-// ============================================================
 
 registerCommands()

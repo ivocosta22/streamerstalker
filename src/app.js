@@ -26,12 +26,24 @@ const { getToken } = require('./integrations/twitch/twitchAPI')
 const songRequestClient = require('./integrations/player/songRequestClient')
 const obsController = require('./integrations/obs/obsController')
 const { createCommands } = require('./integrations/twitch/twitchCommands')
+const customCommands = require('./integrations/twitch/customCommands')
+const commandToggles = require('./integrations/twitch/commandToggles')
+const seedCommands = require('./integrations/twitch/seedCommands')
+const cannonStacks = require('./integrations/twitch/cannonStacks')
+const pointsAccrual = require('./integrations/points/accrual')
+const pointsStore = require('./integrations/points/pointsStore')
+const overlayEmotes = require('./integrations/overlay/emotes')
+const overlayTracker = require('./integrations/overlay/tracker')
+const overlaySounds = require('./integrations/overlay/sounds')
+const overlayActions = require('./integrations/overlay/actions')
 const { registerTwitchRewards } = require('./integrations/twitch/twitchRewards')
 const { startTitleMonitor } = require('./integrations/twitch/titleMonitor')
 const { startChatTimers, recordChatLine } = require('./integrations/twitch/chatTimers')
 const pingList = require('./config/titleUpdatePingList')
-const readline = require('readline')
-
+const chatBus = require('./integrations/twitch/chatBus')
+const badgeResolver = require('./integrations/twitch/badgeResolver')
+const emoteResolver = require('./integrations/twitch/emoteResolver')
+const kickChat = require('./integrations/kick/kickChat')
 process.on('unhandledRejection', (reason) => {
   logColor('red', `[SYSTEM] Unhandled Rejection: ${reason}`)
 })
@@ -55,6 +67,9 @@ async function startObs() {
 }
 startObs()
 getToken('user')
+badgeResolver.fetchBadges().catch(() => {})
+emoteResolver.fetchEmotes().catch(() => {})
+kickChat.start().catch(() => {})
 songRequestClient.start(logColor, async (enabled) => {
   const msg = enabled
     ? 'Song requests are now enabled! Use !sr <YouTube URL> to request a song.'
@@ -94,58 +109,12 @@ try {
 }
 
 ComfyJS.onConnected = () => logColor('green', `[TWITCH] ✅ Connected to ComfyJS`)
+chatBus.setSay((msg) => ComfyJS.Say(msg))
 
 if (!chat.enabled) {
   ComfyJS.Say = (msg) => logColor('yellow', `[TWITCH] 🔇 Chat disabled — suppressed: ${msg}`)
   logColor('yellow', '[TWITCH] ⚠️ CHAT_ENABLED=false — all outgoing chat messages are suppressed')
 }
-
-// ============================================================
-// Terminal -> Twitch Chat Bridge
-// Sends terminal input to Twitch chat through ComfyJS
-// ============================================================
-function startTerminalChatBridge() {
-  if (!process.stdin || process.stdin.isTTY === false) {
-    logColor('yellow', '[SYSTEM] Terminal chat bridge unavailable in this runtime.')
-    return null
-  }
-
-  const terminalInterface = readline.createInterface({
-    input: process.stdin,
-    output: process.stdout,
-    terminal: true
-  })
-
-  terminalInterface.setPrompt('')
-  terminalInterface.prompt()
-
-  terminalInterface.on('line', (line) => {
-    const message = line.trim()
-
-    if (!message) {
-      terminalInterface.prompt()
-      return
-    }
-
-    try {
-      ComfyJS.Say(message)
-      logColor('cyan', `[TWITCH] Terminal message sent: ${message}`)
-    } catch (error) {
-      logColor('red', `[TWITCH] Failed to send terminal message: ${error?.message || error}`)
-    }
-
-    terminalInterface.prompt()
-  })
-
-  terminalInterface.on('close', () => {
-    logColor('yellow', '[SYSTEM] Terminal chat bridge closed.')
-  })
-
-  logColor('green', '[SYSTEM] Terminal chat bridge ready. Type a message and press Enter to send it to Twitch chat.')
-  return terminalInterface
-}
-
-const terminalChatBridge = startTerminalChatBridge()
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -157,6 +126,12 @@ function delay(ms) {
 // ============================================================
 const userCooldown = require('./state/userCooldown')
 const botState = require('./state/botState')
+
+seedCommands.run({ kickChannelUrl: streamer.kickChannelUrl, logColor })
+
+const rewardStore = require('./integrations/twitch/rewardStore')
+const envRewards = require('./config/env').twitchChannelPointsRewards
+if (envRewards) rewardStore.seedFromEnv(envRewards, logColor)
 
 const commands = createCommands({
   ComfyJS,
@@ -174,6 +149,8 @@ const commands = createCommands({
 
 registerTwitchRewards({ ComfyJS, botState, obsController, logColor })
 startTitleMonitor({ ComfyJS, botState, logColor, pingList })
+pointsAccrual.start({ logColor })
+overlayEmotes.start()
 let _discordClient = null
 
 startChatTimers({
@@ -257,8 +234,13 @@ twitchChatClient.on('connected', (addr, port) => {
 twitchChatClient.on('message', async (target, context, msg, self) => {
   const displayName = context['display-name'] || context.username || 'unknown'
   botState.commandCaller = displayName
+  botState.commandCallerUserId = context['user-id'] || null
+  botState.isMod = !!context.mod
+  botState.isBroadcaster = (context.username || '').toLowerCase() === twitch.channel.toLowerCase()
 
   if (self || botState.commandCaller === twitch.botUsername) return
+
+  chatBus.push(context, msg)
 
   // Ignores StreamElements messages but still logs them
   if (botState.commandCaller === 'StreamElements') {
@@ -268,19 +250,76 @@ twitchChatClient.on('message', async (target, context, msg, self) => {
 
   logColor('default', `[TWITCH] ${botState.commandCaller}: ${msg}`)
   recordChatLine()
+  pointsAccrual.recordActivity(displayName)
 
   const message = msg.trim()
+
+  // Emote combos and pyramids are driven by ordinary chat, so this has to see
+  // every message — including non-commands, which are what break a combo.
+  try {
+    overlayTracker.processMessage({
+      user: displayName,
+      message,
+      say: (line) => { if (chat.enabled) twitchChatClient.say(target, line) }
+    })
+  } catch (err) {
+    logColor('red', `[SYSTEM] Tracker error: ${err?.message || err}`)
+  }
+
+  // Cannon "-10" trigger (not a command, plain chat message)
+  if (message === '-10') {
+    const stacks = cannonStacks.removeStacks(10)
+    const response = `Surfer lagged Kappa and lost a total of ${stacks} stacks LULE`
+    if (chat.enabled) twitchChatClient.say(target, response)
+    return
+  }
+
   if (!message.startsWith(twitch.prefix)) return
 
-  //const [commandName, ...args] = message.slice(twitch.prefix.length).split(' ')
   const parts = message.slice(twitch.prefix.length).trim().split(/\s+/)
   const commandName = parts.shift()
   const args = parts
   logColor('yellow', `[TWITCH] ⚠️ Command Detected: ${commandName} ${args.join(' ')}`)
 
   const lookup = commandName.toLowerCase()
-  const matchedCommand = commands.find(c => c.name.toLowerCase() === lookup)
+  let matchedCommand = commands.find(c => c.name.toLowerCase() === lookup)
+
+  // The balance command follows whatever the currency is currently named, so
+  // !setpointsname Coins makes !coins work. !points always stays available.
   if (!matchedCommand) {
+    const alias = pointsStore.getCurrencyAlias()
+    if (alias && lookup === alias) {
+      matchedCommand = commands.find(c => c.name === 'points')
+    }
+  }
+
+  // Both names are checked so disabling "points" also kills its currency alias.
+  if (matchedCommand &&
+      (commandToggles.isDisabled(lookup) || commandToggles.isDisabled(matchedCommand.name))) {
+    logColor('yellow', `[TWITCH] Ignored ${commandName} — command is disabled`)
+    if (chat.enabled) {
+      twitchChatClient.say(target, `@${displayName} !${lookup} is turned off right now.`)
+    }
+    return
+  }
+
+  // Any file in sounds/ is playable as its own command, so !eww works
+  // alongside !playsound eww without needing to be registered.
+  if (!matchedCommand && overlaySounds.has(lookup)) {
+    const soundResponse = overlayActions.playSound(displayName, lookup)
+    if (soundResponse && chat.enabled) twitchChatClient.say(target, soundResponse)
+    logColor('green', `[TWITCH] ✅ Played sound ${lookup}`)
+    return
+  }
+
+  // Check custom commands if no built-in match
+  if (!matchedCommand) {
+    const customResponse = customCommands.get(lookup)
+    if (customResponse) {
+      if (chat.enabled) twitchChatClient.say(target, customResponse)
+      logColor('green', `[TWITCH] ✅ Executed custom command ${commandName}`)
+      return
+    }
     logColor('red', `[TWITCH] ❌ Unknown command ${commandName}`)
     return
   }
@@ -325,7 +364,7 @@ const discordClient = _discordClient = new Client({
 
 discordClient.once('clientReady', () => {
   try {
-    discordClient.user.setActivity('🏝️ What is this island thing about?', { type: ActivityType.Watching })
+    discordClient.user.setActivity('👀 Watching SurferKiller', { type: ActivityType.Watching })
     logColor('green', `[DISCORD] ✅ Logged in as ${discordClient.user.tag}`)
   } catch (err) {
     logColor('red', `[DISCORD] ❌ Error in ready handler: ${err?.message || err}`)
@@ -350,6 +389,15 @@ discordClient.on('interactionCreate', async (interaction) => {
     if (name === 'coinflip') {
       const result = Math.random() < 0.5 ? 'Flip Flop! You got Heads' : 'Flip Flop! You got Tails'
       await interaction.reply(result)
+      return
+    }
+
+    if (name === 'rank') {
+      await interaction.deferReply()
+      const { getAllRanks, lookupRank } = require('./integrations/riot/riotAPI')
+      const username = interaction.options.getString('username')
+      const reply = username ? await lookupRank(username) : await getAllRanks()
+      await interaction.editReply(reply)
       return
     }
 
@@ -426,10 +474,6 @@ process.on('SIGINT', async () => {
   logColor('yellow', '[SYSTEM] ⚠️ Shutdown signal received')
 
   try {
-    terminalChatBridge?.close()
-  } catch {}
-
-  try {
     await twitchChatClient.disconnect()
     logColor('green', '[SYSTEM] ✅ Twitch disconnected')
   } catch {}
@@ -438,6 +482,8 @@ process.on('SIGINT', async () => {
     await discordClient.destroy()
     logColor('green', '[SYSTEM] ✅ Discord disconnected')
   } catch {}
+
+  try { kickChat.stop() } catch {}
 
   logColor('yellow', '[SYSTEM] ✅ Shutdown complete')
   process.exit(0)

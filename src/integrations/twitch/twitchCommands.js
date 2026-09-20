@@ -12,9 +12,22 @@
  * All commands operate using injected context.
  */
 const superfetch = require('node-superfetch')
-const { twitch, streamer } = require('../../config/env')
+const { twitch, streamer, web } = require('../../config/env')
 const { getToken, getUser, getUserCategory, getChannelInformation, sendChatAnnouncement } = require('./twitchAPI')
 const songRequestClient = require('../player/songRequestClient')
+const customCommands = require('./customCommands')
+const commandToggles = require('./commandToggles')
+const cannonStacks = require('./cannonStacks')
+const { getAllRanks, lookupRank } = require('../riot/riotAPI')
+const points = require('../points/pointsStore')
+const modules = require('../points/modules')
+const slots = require('../points/slots')
+const gambleModule = require('../points/gamble')
+const duel = require('../points/duel')
+const raffle = require('../points/raffle')
+const overlayActions = require('../overlay/actions')
+const overlaySounds = require('../overlay/sounds')
+const settings = require('../../config/settings')
 
 const WITHER_COOLDOWN_MS = 300_000
 
@@ -99,31 +112,36 @@ function createCommands(context) {
   // Simple Commands
   // ============================================================
 
-  const kickCommand = () => streamer.kickChannelUrl
-
   const playlistCommand = () => {
     const url = songRequestClient.getBackupPlaylistUrl()
     if (!url) return 'No playlist is currently set.'
     return `Current playlist: ${url}`
   }
 
-  const gamesCommand = () => `https://docs.google.com/spreadsheets/d/1_CKIaCLP_IbpAglM98tuiQkbwyO_oDgYcVxrmHbZNBo/edit?usp=sharing`
-
   const videosCommand = () => `You can insert videos here for Surfer to watch Sprite https://docs.google.com/document/d/1bxSoH8t5fFlTETAFe0xPk24fAA1hsHyH_-U0BrY1aBU/edit`
 
-  const playSoundCommand = () => `Soundlist commands here: https://docs.google.com/spreadsheets/d/1HICBqgQjHlYHpJ_O6ws3LoWiVAJW9OHyeeBwYx14Gcs/edit?usp=sharing`
-  
+  // !playsound <name> plays; bare !playsound falls through to the list, as do
+  // the !soundlist aliases.
+  const playSoundCommand = (name) => overlayActions.playSound(botState.commandCaller, name)
+
+  const soundListCommand = () => overlayActions.listSounds()
+
+  const soundVolCommand = (levelRaw) => {
+    const caller = botState.commandCaller
+    if (!botState.isBroadcaster) return `@${caller} only the broadcaster can change sound volume.`
+    if (levelRaw === undefined || levelRaw === '') return `@${caller} sound volume is at ${overlayActions.getVolume()}%.`
+    const level = Math.floor(Number(levelRaw))
+    if (!Number.isFinite(level) || level < 0 || level > 100) return `@${caller} volume must be a number from 0 to 100.`
+    overlayActions.setVolume(level)
+    return `@${caller} sound volume set to ${level}%.`
+  }
+
+  const showEmoteCommand = (name) => overlayActions.showEmote(botState.commandCaller, name)
+
+
   const lurkCommand = () => `${botState.commandCaller} turned on lurk mode peepoBlanket`
 
   const unlurkCommand = () => `${botState.commandCaller} is back! PeepoCheer`
-
-  const discordCommand = () => `You're In EZ Clap https://discord.gg/FM9b3m7wUy`
-
-  const pentaCommand = () => `Surfer's Pentas in Synapse's channel here: https://youtu.be/qkZ2sukhVRU?t=266 - https://youtu.be/PStKAXach6Y?t=255 - https://youtu.be/lly9zvmxLF0?t=579`
-
-  const trihardCommand = () => `When Surfer is on trihard mode, it means that he's focused 100% on the game. He will answer chat messages when dead/recalling. Surfer does not talk when in trihard mode.`
-
-  const sickCommand = () => `Surfer is currently not sick. FeelsOkayMan`
 
   const pingCommand = () => {
     const totalSeconds = Math.floor((Date.now() - botState.startTime) / 1000)
@@ -149,10 +167,7 @@ function createCommands(context) {
     return `@${botState.commandCaller} tucked ${uname} to bed FeelsOkayMan 👉 🛏️`
   }
 
-  const timeCommand = () => {
-    const options = { timeZone: streamer.timezone, timeStyle: 'medium', hour12: false }
-    return `It's currently ${new Date().toLocaleTimeString(undefined, options)} in Surfer's timezone Sime`
-  }
+  const timeCommand = () => settings.renderTime(twitchChannelCaseSensitive)
 
   // ============================================================
   // Async Commands (Twitch API / ComfyJS)
@@ -183,7 +198,7 @@ function createCommands(context) {
   }
 
   const witherCommand = async (username) => {
-    if (!username) return ''
+    if (!username) return `@${botState.commandCaller} usage: !wither <user>`
 
     if (userCooldown.has(botState.commandCaller)) {
       logColor('cyan', `[TWITCH] 🤡 ${botState.commandCaller} is on cooldown for wither.`)
@@ -305,44 +320,422 @@ function createCommands(context) {
   }
 
   // ============================================================
+  // Privilege check — mod or broadcaster
+  // ============================================================
+  function isPrivileged() {
+    return botState.isBroadcaster || botState.isMod
+  }
+
+  // ============================================================
+  // Custom Command Management (mod/broadcaster only)
+  // ============================================================
+  const addCommandCmd = (...args) => {
+    const caller = botState.commandCaller
+    if (!isPrivileged()) return `@${caller} only mods or the broadcaster can add commands.`
+    if (args.length < 2) return `@${caller} usage: !addcommand <name> <response>`
+    const name = args[0].toLowerCase()
+    const response = args.slice(1).join(' ')
+    if (builtInNames.has(name)) return `@${caller} "${name}" is a built-in command and can't be overridden.`
+    if (name === points.getCurrencyAlias()) {
+      return `@${caller} "${name}" is the balance command for ${points.getCurrencyName()} and can't be overridden.`
+    }
+    if (overlaySounds.has(name)) {
+      return `@${caller} "${name}" is a sound and already plays as !${name}.`
+    }
+    if (customCommands.add(name, response)) {
+      logColor('green', `[TWITCH] Custom command !${name} added by ${caller}`)
+      return `@${caller} command !${name} has been added.`
+    }
+    return `@${caller} command !${name} already exists. Use !changecommand to update it.`
+  }
+
+  const deleteCommandCmd = (...args) => {
+    const caller = botState.commandCaller
+    if (!isPrivileged()) return `@${caller} only mods or the broadcaster can delete commands.`
+    if (args.length < 1) return `@${caller} usage: !deletecommand <name>`
+    const name = args[0].toLowerCase()
+    if (customCommands.remove(name)) {
+      logColor('green', `[TWITCH] Custom command !${name} deleted by ${caller}`)
+      return `@${caller} command !${name} has been deleted.`
+    }
+    return `@${caller} command !${name} doesn't exist.`
+  }
+
+  const changeCommandCmd = (...args) => {
+    const caller = botState.commandCaller
+    if (!isPrivileged()) return `@${caller} only mods or the broadcaster can edit commands.`
+    if (args.length < 2) return `@${caller} usage: !changecommand <name> <new response>`
+    const name = args[0].toLowerCase()
+    const response = args.slice(1).join(' ')
+    if (customCommands.edit(name, response)) {
+      logColor('green', `[TWITCH] Custom command !${name} updated by ${caller}`)
+      return `@${caller} command !${name} has been updated.`
+    }
+    return `@${caller} command !${name} doesn't exist. Use !addcommand to create it.`
+  }
+
+  // ============================================================
+  // Enabling / disabling built-in commands
+  // ============================================================
+  function resolveBuiltIn(caller, rawName) {
+    const name = String(rawName || '').replace(/^!/, '').trim().toLowerCase()
+    if (!name) return { error: null, name: '' }
+    if (builtInNames.has(name)) return { error: null, name }
+    if (customCommands.get(name)) {
+      return { error: `@${caller} "${name}" is a custom command — remove it with !deletecommand instead.` }
+    }
+    return { error: `@${caller} there's no built-in command called "${name}".` }
+  }
+
+  const disableCommandCmd = (rawName) => {
+    const caller = botState.commandCaller
+    if (!isPrivileged()) return `@${caller} only mods or the broadcaster can disable commands.`
+    if (!rawName) return `@${caller} usage: !disablecommand <name>`
+
+    const { error, name } = resolveBuiltIn(caller, rawName)
+    if (error) return error
+
+    const result = commandToggles.disable(name)
+    if (result === 'protected') {
+      return `@${caller} "${name}" can't be disabled — you'd have no way to re-enable anything from chat.`
+    }
+    if (result === 'already') return `@${caller} !${name} is already disabled.`
+
+    logColor('yellow', `[TWITCH] Command !${name} disabled by ${caller}`)
+    return `@${caller} !${name} is now disabled.`
+  }
+
+  const enableCommandCmd = (rawName) => {
+    const caller = botState.commandCaller
+    if (!isPrivileged()) return `@${caller} only mods or the broadcaster can enable commands.`
+    if (!rawName) return `@${caller} usage: !enablecommand <name>`
+
+    const { error, name } = resolveBuiltIn(caller, rawName)
+    if (error) return error
+
+    if (commandToggles.enable(name) === 'not_disabled') {
+      return `@${caller} !${name} isn't disabled.`
+    }
+
+    logColor('green', `[TWITCH] Command !${name} re-enabled by ${caller}`)
+    return `@${caller} !${name} is now enabled.`
+  }
+
+  const disabledCommandsCmd = () => {
+    const disabled = commandToggles.list()
+    if (disabled.length === 0) return 'No commands are disabled.'
+    return `Disabled commands (${disabled.length}): ${disabled.map(n => `!${n}`).join(', ')}`
+  }
+
+  // ============================================================
+  // !cannon — Nasus stacks counter
+  // ============================================================
+  const cannonCommand = () => {
+    const stacks = cannonStacks.removeStacks(10)
+    return `Surfer lagged Kappa and lost a total of ${stacks} stacks LULE`
+  }
+
+  // ============================================================
+  // !vanish — self-timeout for 1 second
+  // ============================================================
+  const vanishCommand = async () => {
+    const caller = botState.commandCaller
+    const callerUserId = botState.commandCallerUserId
+    if (!callerUserId) return ''
+
+    try {
+      const token = await getToken('user')
+      await superfetch
+        .post(`${twitch.APIEndpoint}/moderation/bans`)
+        .query({
+          broadcaster_id: twitchChannelUserID,
+          moderator_id: twitchBotUserID
+        })
+        .set('Authorization', `Bearer ${token}`)
+        .set('Client-Id', twitchBotAPIClientID)
+        .set('Content-Type', 'application/json')
+        .send(JSON.stringify({
+          data: {
+            user_id: String(callerUserId),
+            duration: 1,
+            reason: `${caller} vanished!`
+          }
+        }))
+      logColor('cyan', `[TWITCH] ${caller} vanished!`)
+    } catch (err) {
+      logColor('red', `[TWITCH] Vanish failed for ${caller}: ${err.message}`)
+    }
+    return ''
+  }
+
+  // ============================================================
+  // !rank — League of Legends rank lookup via Riot API
+  // ============================================================
+  const rankCommand = async (...args) => {
+    try {
+      const input = args.join(' ').trim()
+      if (input) return await lookupRank(input)
+      return await getAllRanks()
+    } catch (err) {
+      logColor('red', `[TWITCH] Rank lookup failed: ${err.message}`)
+      return 'Could not fetch rank data right now.'
+    }
+  }
+
+  // ============================================================
+  // Points System
+  // ============================================================
+  const say = (msg) => ComfyJS?.Say?.(msg)
+
+  const disabledMsg = (name) => `The ${name} module is currently disabled.`
+
+  const pointsCommand = (targetRaw) => {
+    const caller = botState.commandCaller
+    const currency = points.getCurrencyName()
+    if (targetRaw) {
+      const target = String(targetRaw).replace(/^@/, '')
+      return `@${target} has ${points.format(points.getBalance(target))} ${currency}.`
+    }
+    return `@${caller} you have ${points.format(points.getBalance(caller))} ${currency}.`
+  }
+
+  // Chat only has room for the top few, so point at the full page when the web
+  // interface is actually published somewhere viewers can reach.
+  const webLink = (path) => (web.publicUrl ? ` ${web.publicUrl}${path}` : '')
+
+  const leaderboardCommand = () => {
+    const currency = points.getCurrencyName()
+    const top = points.leaderboard(5)
+    if (top.length === 0) return `Nobody has any ${currency} yet.`
+    const list = top.map((e, i) => `${i + 1}. ${e.name} (${points.format(e.amount)})`).join(' | ')
+    return `Top ${currency}: ${list}${webLink('/leaderboard')}`
+  }
+
+  const commandsCommand = () => {
+    if (!web.publicUrl) {
+      return `@${botState.commandCaller} the command list isn't published online yet.`
+    }
+    return `Every command: ${web.publicUrl}/commands`
+  }
+
+  const givePointsCommand = (targetRaw, amountRaw) => {
+    const caller = botState.commandCaller
+    if (!isPrivileged()) return `@${caller} only mods or the broadcaster can grant ${points.getCurrencyName()}.`
+    if (!targetRaw || !amountRaw) return `@${caller} usage: !givepoints <user> <amount>`
+    const amount = Math.floor(Number(amountRaw))
+    if (!Number.isFinite(amount) || amount <= 0) return `@${caller} "${amountRaw}" isn't a valid amount.`
+    const target = String(targetRaw).replace(/^@/, '')
+    const total = points.addPoints(target, amount)
+    return `@${target} received ${points.format(amount)} ${points.getCurrencyName()}! Balance: ${points.format(total)}`
+  }
+
+  const removePointsCommand = (targetRaw, amountRaw) => {
+    const caller = botState.commandCaller
+    if (!isPrivileged()) return `@${caller} only mods or the broadcaster can remove ${points.getCurrencyName()}.`
+    if (!targetRaw || !amountRaw) return `@${caller} usage: !removepoints <user> <amount>`
+    const amount = Math.floor(Number(amountRaw))
+    if (!Number.isFinite(amount) || amount <= 0) return `@${caller} "${amountRaw}" isn't a valid amount.`
+    const target = String(targetRaw).replace(/^@/, '')
+    const total = points.removePoints(target, amount)
+    return `@${target} lost ${points.format(amount)} ${points.getCurrencyName()}. Balance: ${points.format(total)}`
+  }
+
+  const setPointsCommand = (targetRaw, amountRaw) => {
+    const caller = botState.commandCaller
+    if (!isPrivileged()) return `@${caller} only mods or the broadcaster can set ${points.getCurrencyName()}.`
+    if (!targetRaw || amountRaw === undefined) return `@${caller} usage: !setpoints <user> <amount>`
+    const amount = Math.floor(Number(amountRaw))
+    if (!Number.isFinite(amount) || amount < 0) return `@${caller} "${amountRaw}" isn't a valid amount.`
+    const target = String(targetRaw).replace(/^@/, '')
+    const total = points.setBalance(target, amount)
+    return `@${target} now has ${points.format(total)} ${points.getCurrencyName()}.`
+  }
+
+  const setPointsNameCommand = (...args) => {
+    const caller = botState.commandCaller
+    if (!isPrivileged()) return `@${caller} only mods or the broadcaster can rename the currency.`
+    const name = args.join(' ').trim()
+    if (!name) return `@${caller} usage: !setpointsname <name>`
+    const previous = points.getCurrencyName()
+    points.setCurrencyName(name)
+    const alias = points.getCurrencyAlias()
+    logColor('green', `[SYSTEM] Currency renamed from "${previous}" to "${name}" by ${caller}`)
+    const how = alias ? `!${alias} or !points` : '!points'
+    return `@${caller} the currency is now called "${name}" (was "${previous}"). Check balances with ${how}.`
+  }
+
+  const modulesCommand = () => {
+    const list = modules.list().map(m => `${m.name}: ${m.enabled ? 'ON' : 'OFF'}`).join(' | ')
+    return `Modules — ${list}`
+  }
+
+  const moduleCommand = (action, name) => {
+    const caller = botState.commandCaller
+    if (!isPrivileged()) return `@${caller} only mods or the broadcaster can toggle modules.`
+    if (!action || !name) return `@${caller} usage: !module <enable|deactivate> <${modules.NAMES.join('|')}>`
+    const verb = String(action).toLowerCase()
+    const enable = verb === 'enable' || verb === 'activate' || verb === 'on'
+    const disable = verb === 'disable' || verb === 'deactivate' || verb === 'off'
+    if (!enable && !disable) return `@${caller} usage: !module <enable|disable> <${modules.NAMES.join('|')}>`
+    const key = String(name).toLowerCase()
+    if (!modules.setEnabled(key, enable)) {
+      return `@${caller} unknown module "${name}". Options: ${modules.NAMES.join(', ')}`
+    }
+    logColor('green', `[SYSTEM] Module ${key} ${enable ? 'enabled' : 'disabled'} by ${caller}`)
+    return `@${caller} module "${key}" is now ${enable ? 'ENABLED' : 'DISABLED'}.`
+  }
+
+  const slotsCommand = (amountRaw) => {
+    if (!modules.isEnabled('slots')) return disabledMsg('slots')
+    return slots.spin(botState.commandCaller, amountRaw)
+  }
+
+  const gambleCommand = (amountRaw) => {
+    if (!modules.isEnabled('gamble')) return disabledMsg('gamble')
+    return gambleModule.gamble(botState.commandCaller, amountRaw)
+  }
+
+  const duelCommand = (targetRaw, amountRaw) => {
+    if (!modules.isEnabled('duel')) return disabledMsg('duel')
+    return duel.challenge(botState.commandCaller, targetRaw, amountRaw)
+  }
+
+  const acceptCommand = () => {
+    if (!modules.isEnabled('duel')) return ''
+    return duel.accept(botState.commandCaller)
+  }
+
+  const denyCommand = () => {
+    if (!modules.isEnabled('duel')) return ''
+    return duel.deny(botState.commandCaller)
+  }
+
+  const startRaffle = (potRaw, singleWinner) => {
+    const caller = botState.commandCaller
+    if (!modules.isEnabled('raffle')) return disabledMsg('raffle')
+    if (!isPrivileged()) return `@${caller} only mods or the broadcaster can start a raffle.`
+    const cfg = modules.get('raffle')
+    const pot = potRaw === undefined ? cfg.defaultPot : Math.floor(Number(potRaw))
+    if (!Number.isFinite(pot) || pot <= 0) return `@${caller} "${potRaw}" isn't a valid pot amount.`
+    logColor('green', `[SYSTEM] Raffle started by ${caller} for ${pot} (${singleWinner ? 'single' : 'multi'})`)
+    return raffle.start({ pot, singleWinner, say })
+  }
+
+  const raffleCommand  = (potRaw) => startRaffle(potRaw, false)
+  const sraffleCommand = (potRaw) => startRaffle(potRaw, true)
+
+  // Joins are silent on purpose — confirming each one would flood chat.
+  const joinCommand = () => {
+    raffle.join(botState.commandCaller)
+    return ''
+  }
+
+  const VIP_COST = 100_000
+
+  const redeemVipCommand = async () => {
+    const caller = botState.commandCaller
+    const callerUserId = botState.commandCallerUserId
+    const currency = points.getCurrencyName()
+
+    if (!callerUserId) return ''
+
+    const balance = points.getBalance(caller)
+    if (balance < VIP_COST) {
+      return `@${caller} you need ${points.format(VIP_COST)} ${currency} to redeem VIP (you have ${points.format(balance)}).`
+    }
+
+    try {
+      const token = await getToken('user')
+      const res = await superfetch
+        .post(`${twitch.APIEndpoint}/channels/vips`)
+        .query({
+          broadcaster_id: twitchChannelUserID,
+          user_id: String(callerUserId)
+        })
+        .set('Authorization', `Bearer ${token}`)
+        .set('Client-Id', twitchBotAPIClientID)
+
+      if (res.status === 204 || res.status === 200) {
+        points.removePoints(caller, VIP_COST)
+        logColor('green', `[TWITCH] ⭐ ${caller} redeemed VIP for ${points.format(VIP_COST)} ${currency}`)
+        return `@${caller} you are now a VIP! (−${points.format(VIP_COST)} ${currency})`
+      }
+
+      logColor('red', `[TWITCH] VIP assign failed for ${caller}: status ${res.status}`)
+      return `@${caller} something went wrong assigning VIP. Points were NOT deducted.`
+    } catch (err) {
+      logColor('red', `[TWITCH] VIP assign failed for ${caller}: ${err.message}`)
+      return `@${caller} something went wrong assigning VIP. Points were NOT deducted.`
+    }
+  }
+
+  // ============================================================
   // Return Commands Array
   // ============================================================
-  return Object.freeze([
+  const commandList = [
     { name: 'ping', response: pingCommand },
     { name: 'wither', response: witherCommand },
-    { name: 'kick', response: kickCommand },
     { name: 'playlist', response: playlistCommand },
-    { name: 'games', response: gamesCommand },
-    { name: 'gamelist', response: gamesCommand },
-    { name: 'gameslist', response: gamesCommand },
     { name: 'time', response: timeCommand },
     { name: 'videos', response: videosCommand },
     { name: 'playsound', response: playSoundCommand },
-    { name: 'sound', response: playSoundCommand },
-    { name: 'sounds', response: playSoundCommand },
-    { name: 'soundlist', response: playSoundCommand },
-    { name: 'soundboard', response: playSoundCommand },
-    { name: 'soundclips', response: playSoundCommand },
+    { name: 'playsoundlist', response: soundListCommand },
+    { name: 'sound', response: soundListCommand },
+    { name: 'sounds', response: soundListCommand },
+    { name: 'soundlist', response: soundListCommand },
+    { name: 'soundboard', response: soundListCommand },
+    { name: 'soundclips', response: soundListCommand },
+    { name: 'soundvol', response: soundVolCommand },
+    { name: 'showemote', response: showEmoteCommand },
     { name: 'lurk', response: lurkCommand },
     { name: 'unlurk', response: unlurkCommand },
-    { name: 'discord', response: discordCommand },
-    { name: 'penta', response: pentaCommand },
-    { name: 'pentakill', response: pentaCommand },
-    { name: 'pentas', response: pentaCommand },
     { name: 'sr', response: srCommand },
     { name: 'skip', response: skipCommand },
     { name: 'song', response: songCommand },
     { name: 'so', response: soCommand },
-    { name: 'trihard', response: trihardCommand },
-    { name: 'sick', response: sickCommand },
     { name: 'tuck', response: tuckCommand },
     { name: 'game', response: categoryCommand },
     { name: 'category', response: categoryCommand },
     { name: 'title', response: titleCommand },
     { name: 'obsreconnect', response: reconnectOBSCommand },
     { name: 'obsstatus', response: statusOBSCommand },
-    { name: 'pingme', response: pingmeCommand }
-  ])
+    { name: 'pingme', response: pingmeCommand },
+    { name: 'addcommand', response: addCommandCmd },
+    { name: 'deletecommand', response: deleteCommandCmd },
+    { name: 'changecommand', response: changeCommandCmd },
+    { name: 'disablecommand', response: disableCommandCmd },
+    { name: 'enablecommand', response: enableCommandCmd },
+    { name: 'disabledcommands', response: disabledCommandsCmd },
+    { name: 'cannon', response: cannonCommand },
+    { name: 'vanish', response: vanishCommand },
+    { name: 'rank', response: rankCommand },
+    { name: 'points', response: pointsCommand },
+    { name: 'balance', response: pointsCommand },
+    { name: 'leaderboard', response: leaderboardCommand },
+    { name: 'top', response: leaderboardCommand },
+    { name: 'givepoints', response: givePointsCommand },
+    { name: 'removepoints', response: removePointsCommand },
+    { name: 'setpoints', response: setPointsCommand },
+    { name: 'setpointsname', response: setPointsNameCommand },
+    { name: 'modules', response: modulesCommand },
+    { name: 'module', response: moduleCommand },
+    { name: 'slots', response: slotsCommand },
+    { name: 'gamble', response: gambleCommand },
+    { name: 'duel', response: duelCommand },
+    { name: 'accept', response: acceptCommand },
+    { name: 'deny', response: denyCommand },
+    { name: 'raffle', response: raffleCommand },
+    { name: 'sraffle', response: sraffleCommand },
+    { name: 'join', response: joinCommand },
+    { name: 'redeemvip', response: redeemVipCommand },
+    { name: 'commands', response: commandsCommand },
+    { name: 'commandlist', response: commandsCommand },
+    { name: 'help', response: commandsCommand }
+  ]
+
+  const builtInNames = new Set(commandList.map(c => c.name))
+
+  return Object.freeze(commandList)
 }
 
 

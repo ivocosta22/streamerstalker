@@ -7,3 +7,5 @@ dist/
 *.log
 twitch-user-tokens.json
 scripts.txt
+data/
+TODO.md

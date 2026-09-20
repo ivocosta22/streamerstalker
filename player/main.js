@@ -214,6 +214,27 @@ function createPlayerView() {
 const RECYCLE_EVERY = 10
 let loadsSinceRecycle = 0
 
+// Bumped on every navigation we start. A did-finish-load handler fires 2.5s
+// later, by which point a skip may have moved us on — without this, that stale
+// timeout runs its script against whatever page is loaded now.
+let loadToken = 0
+
+/**
+ * Applies volume and starts playback in the page.
+ *
+ * Deliberately an IIFE: executeJavaScript evaluates at the realm's top level,
+ * so a bare `const p` throws "already declared" the second time it runs against
+ * the same page — taking setVolume and playVideo down with it and leaving the
+ * song silent and paused.
+ */
+function applyPlaybackScript({ play }) {
+  return `;(() => {
+    const p = document.querySelector('#movie_player')
+    if (typeof p?.setVolume === 'function') p.setVolume(${volume})
+    ${play ? 'if (typeof p?.playVideo === \'function\') p.playVideo()' : ''}
+  })()`
+}
+
 function recyclePlayerView() {
   if (!mainWindow || mainWindow.isDestroyed()) return
   console.log(`[PLAYER] Recycling player view after ${loadsSinceRecycle} loads (frees renderer memory)`)
@@ -266,6 +287,10 @@ function setLogsOpen(open) {
 // ── Broadcast state to renderer ───────────────────────────────────────────────
 
 function broadcast() {
+  // The web player page renders from the bot's mirror of this state, so every
+  // change the sidebar sees has to reach the bot too or the two drift apart.
+  pushStatusToBot()
+
   if (!mainWindow || mainWindow.isDestroyed()) return
   mainWindow.webContents.send('state', {
     current: currentTrack,
@@ -287,6 +312,10 @@ function pushStatusToBot() {
       type: 'status',
       requestsEnabled,
       backupPlaylistUrl,
+      isPaused,
+      volume,
+      backupMode,
+      queue: queue.map(t => ({ title: t.title, url: t.url, requester: t.requester })),
       current: active
         ? { title: active.title, url: active.url, requester: active.requester }
         : null
@@ -323,11 +352,14 @@ function playNext() {
 
   if (++loadsSinceRecycle >= RECYCLE_EVERY) recyclePlayerView()
   const view = playerView
+  const token = ++loadToken
   safeSetMuted(view, true)
   view.webContents.loadURL(currentTrack.url)
 
   view.webContents.once('did-finish-load', () => {
     setTimeout(async () => {
+      // A newer song already started; it owns the mute/unmute cycle now.
+      if (token !== loadToken) return
       try {
         const title = await safeExec(`
           document.querySelector('h1.ytd-watch-metadata yt-formatted-string')?.textContent?.trim()
@@ -338,16 +370,11 @@ function playNext() {
         if (title && currentTrack) {
           currentTrack.title = title
           broadcast()
-          pushStatusToBot()
           console.log(`[PLAYER] Title resolved: "${title}"`)
         } else if (!title) {
           console.warn('[PLAYER] Could not read video title from the page')
         }
-        await safeExec(`
-          const p = document.querySelector('#movie_player')
-          p?.setVolume(${volume})
-          p?.playVideo()
-        `)
+        await safeExec(applyPlaybackScript({ play: true }))
       } finally {
         // Must always run — a skipped unmute leaves the player silent for good.
         safeSetMuted(view, false)
@@ -590,16 +617,14 @@ function loadBackupVideo(videoId) {
   console.log(`[PLAYER] Backup song: ${videoId} — ${backupBag.length} of ${backupAllIds.length} left this cycle`)
   if (++loadsSinceRecycle >= RECYCLE_EVERY) recyclePlayerView()
   const view = playerView
+  const token = ++loadToken
   safeSetMuted(view, true)
   view.webContents.loadURL(`https://www.youtube.com/watch?v=${videoId}`)
   view.webContents.once('did-finish-load', () => {
     setTimeout(async () => {
+      if (token !== loadToken) return
       try {
-        await safeExec(`
-          const p = document.querySelector('#movie_player')
-          if (typeof p?.setVolume === 'function') p.setVolume(${volume})
-          p?.playVideo?.()
-        `)
+        await safeExec(applyPlaybackScript({ play: true }))
       } finally {
         safeSetMuted(view, false)
       }
@@ -646,15 +671,14 @@ async function playBackupPlaylist() {
   }
   if (++loadsSinceRecycle >= RECYCLE_EVERY) recyclePlayerView()
   const view = playerView
+  const token = ++loadToken
   safeSetMuted(view, true)
   view.webContents.loadURL(url)
   view.webContents.once('did-finish-load', () => {
     setTimeout(async () => {
+      if (token !== loadToken) return
       try {
-        await safeExec(`
-          const p = document.querySelector('#movie_player')
-          if (typeof p?.setVolume === 'function') p.setVolume(${volume})
-        `)
+        await safeExec(applyPlaybackScript({ play: false }))
         tryHarvestPlaylistIds()
       } finally {
         safeSetMuted(view, false)
@@ -822,82 +846,86 @@ function startPollTimer() {
   }, 2000)
 }
 
-// ── IPC handlers (from renderer sidebar) ─────────────────────────────────────
+// ── Control actions ───────────────────────────────────────────────────────────
+// Shared by the Electron sidebar (via IPC) and the web player page (via the
+// bot's WebSocket), so both drive the player through exactly the same code.
 
-ipcMain.on('skip', () => skipCurrent('sidebar'))
-
-ipcMain.on('toggle-pause', async () => {
+async function togglePause() {
   if (!currentTrack && !backupMode) return
   try {
     const method = isPaused ? 'playVideo' : 'pauseVideo'
-    await playerView.webContents.executeJavaScript(
-      `document.querySelector('#movie_player')?.${method}()`
-    )
+    await safeExec(`document.querySelector('#movie_player')?.${method}()`)
     isPaused = !isPaused
     broadcast()
     console.log(`[PLAYER] ${isPaused ? 'Paused' : 'Resumed'} playback`)
   } catch (err) {
     console.error(`[PLAYER] Pause/resume failed: ${err.message}`)
   }
-})
+}
 
-ipcMain.on('set-volume', async (_e, value) => {
-  volume = Math.round(value)
+async function applyVolume(value) {
+  const next = Math.round(Number(value))
+  if (!Number.isFinite(next)) return
+  volume = Math.max(0, Math.min(100, next))
   scheduleSave()
-  try {
-    await playerView.webContents.executeJavaScript(
-      `document.querySelector('#movie_player')?.setVolume(${volume})`
-    )
-  } catch {}
-})
+  broadcast()
+  await safeExec(`document.querySelector('#movie_player')?.setVolume(${volume})`)
+}
 
-ipcMain.on('toggle-logs', () => setLogsOpen(!logsOpen))
-
-ipcMain.handle('get-logs', () => logBuffer)
-
-ipcMain.on('clear-logs', () => { logBuffer.length = 0 })
-
-ipcMain.on('clear-queue', () => {
+function clearQueue() {
   if (queue.length > 0) console.log(`[PLAYER] Queue cleared (${queue.length} removed)`)
   queue.length = 0
   broadcast()
-})
+}
 
-ipcMain.on('remove-from-queue', (_e, index) => {
+function removeFromQueue(index) {
   if (index >= 0 && index < queue.length) {
     console.log(`[PLAYER] Removed "${queue[index].title}" from the queue`)
     queue.splice(index, 1)
     broadcast()
   }
-})
+}
 
-ipcMain.on('toggle-requests', () => {
-  requestsEnabled = !requestsEnabled
+function toggleRequests(force) {
+  requestsEnabled = typeof force === 'boolean' ? force : !requestsEnabled
   broadcast()
-  pushStatusToBot()
   console.log(`[PLAYER] Song requests ${requestsEnabled ? 'ENABLED' : 'DISABLED'}`)
-})
+}
 
-ipcMain.on('set-backup-playlist', (_e, url) => {
+function setBackupPlaylist(url, switchNow) {
   const prev = backupPlaylistUrl
-  backupPlaylistUrl = url.trim()
+  backupPlaylistUrl = String(url || '').trim()
   scheduleSave()
+
+  if (switchNow) {
+    console.log(`[PLAYER] Backup playlist updated, switching now: ${backupPlaylistUrl || '(none)'}`)
+    resetBackupShuffle()
+    broadcast()
+    if (backupPlaylistUrl && (!currentTrack || backupMode)) playBackupPlaylist()
+    return
+  }
+
   if (backupPlaylistUrl !== prev) {
     console.log(`[PLAYER] Backup playlist saved: ${backupPlaylistUrl || '(none)'}`)
     resetBackupShuffle()
   }
   broadcast()
   if (!currentTrack && !backupMode && backupPlaylistUrl) playBackupPlaylist()
-})
+}
 
-ipcMain.on('update-backup-playlist', (_e, url) => {
-  backupPlaylistUrl = url.trim()
-  scheduleSave()
-  console.log(`[PLAYER] Backup playlist updated, switching now: ${backupPlaylistUrl || '(none)'}`)
-  resetBackupShuffle()
-  broadcast()
-  if (backupPlaylistUrl && (!currentTrack || backupMode)) playBackupPlaylist()
-})
+// ── IPC handlers (from renderer sidebar) ─────────────────────────────────────
+
+ipcMain.on('skip', () => skipCurrent('sidebar'))
+ipcMain.on('toggle-pause', togglePause)
+ipcMain.on('set-volume', (_e, value) => applyVolume(value))
+ipcMain.on('toggle-logs', () => setLogsOpen(!logsOpen))
+ipcMain.handle('get-logs', () => logBuffer)
+ipcMain.on('clear-logs', () => { logBuffer.length = 0 })
+ipcMain.on('clear-queue', clearQueue)
+ipcMain.on('remove-from-queue', (_e, index) => removeFromQueue(index))
+ipcMain.on('toggle-requests', () => toggleRequests())
+ipcMain.on('set-backup-playlist', (_e, url) => setBackupPlaylist(url, false))
+ipcMain.on('update-backup-playlist', (_e, url) => setBackupPlaylist(url, true))
 
 ipcMain.handle('manual-sr', async (_e, input) => {
   const trimmed = (input || '').trim()
@@ -957,6 +985,22 @@ function startWebSocketServer() {
           } else {
             console.warn('[PLAYER] Chat skip ignored — nothing is playing')
             ws.send(JSON.stringify({ ok: false, error: 'nothing_playing' }))
+          }
+          return
+        }
+
+        // Control frames come from the web player page, relayed by the bot.
+        if (msg.type === 'control') {
+          switch (msg.action) {
+            case 'skip':              skipCurrent('web'); break
+            case 'pause':             togglePause(); break
+            case 'volume':            applyVolume(msg.value); break
+            case 'clearQueue':        clearQueue(); break
+            case 'removeFromQueue':   removeFromQueue(Number(msg.value)); break
+            case 'toggleRequests':    toggleRequests(typeof msg.value === 'boolean' ? msg.value : undefined); break
+            case 'setBackupPlaylist': setBackupPlaylist(msg.value, true); break
+            default:
+              console.warn(`[PLAYER] Unknown control action: ${msg.action}`)
           }
           return
         }

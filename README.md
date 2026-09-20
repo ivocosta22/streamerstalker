@@ -1,119 +1,132 @@
-# StreamerStalker Bot
+# SurferStalker
 
-Custom Twitch & Discord bot with OBS integration, Twitch moderation tools, channel point reward handling, and an Electron-based song request media player.
+A custom Twitch & Discord bot with OBS integration, a channel points economy, an Electron-based song request player, and a multi-platform chat overlay.
 
-## Overview
-StreamerStalker is a Node.js-based integration bot that connects:
-
-- Twitch Chat
-- Twitch API
-- Discord
-- OBS WebSocket
-- Electron Media Player
-
-It was developed to meet the specific automation and moderation needs of a Twitch live streamer.
-
-This bot provides moderation tools, channel point reward automation, cross-platform messaging, camera/microphone automation during live streams, and a custom desktop media player for handling viewer song requests.
-
----
+Built in Node.js. Designed to replace StreamElements with something fully self-hosted and extensible.
 
 ## Features
 
-### Twitch
-- Custom chat command system
-- Channel point reward handling
-- Timeout stacking logic (shared state)
-- OAuth token management & automatic refresh
-- Twitch Helix API integration
+### Chat & Commands
+- **60+ built-in commands** across points, games, music, stream info, sounds, moderation, and fun
+- **Custom commands** — create, edit, and delete from chat or the dashboard
+- **Chat timers** — recurring messages with activity thresholds and online/offline intervals
+- **Custom Built-in commands** — channel-specific commands (`!cannon`, `!rank`, `!wither`) separated from the public build
+
+### Multi-Platform Chat
+- **Twitch chat** — full command handling, moderation, and channel point rewards
+- **Kick chat** — real-time listener via Pusher WebSocket with native Kick emotes and role badges (broadcaster, moderator, VIP, OG, verified, staff, bot, founder)
+- **Unified chat overlay** — merges Twitch and Kick into a single OBS browser source with platform icons
+- **Third-party emotes** — 7TV, BTTV, and FFZ (global + channel) on Twitch; 7TV on Kick
+
+### Discord Integration
+- **Slash commands** — `/ping`, `/coinflip`, `/say`, `/rank`
+- **Chat bridge** — forwards Discord messages to Twitch chat
+- **Go-live announcements** — `@everyone` notification when the stream starts
+
+### League of Legends (`!rank`)
+- Shows the streamer's solo queue rank with win rate across multiple accounts
+- `!rank Name#Tag` — look up any player's rank (Twitch and Discord)
+- `/rank` — Discord slash command with optional username parameter
+- Powered by the Riot Games API
+
+### Points Economy
+- Currency with customizable name
+- **Gambling** — `!gamble`, `!slots` with configurable payouts
+- **Duels** — `!duel` with accept/deny flow
+- **Raffles** — streamer-started with `!raffle`, viewers join with `!join`
+- **Leaderboard** — public page and `!leaderboard` command
+- **Admin tools** — give, remove, set points from chat or dashboard
+- **VIP redemption** — `!redeemvip` spends points for Twitch VIP
+
+### Song Requests
+- **Electron desktop player** in `player/` — YouTube playback with queue management
+- **`!sr`** — queue by URL or search by name
+- **Backup playlist** — YouTube playlist URL fills gaps when the queue is empty
+- **Web controls** — `/player` page mirrors the desktop sidebar over the network
+- **Channel point integration** — optionally require channel points to request songs
 
 ### OBS Integration
-- WebSocket connection lifecycle management
-- Automatic reconnect handling
-- Wide camera activation with auto-revert timer
-- Microphone mute with countdown overlay
-- Dynamic overlay text animation
+- **WebSocket control** — toggle sources, mute audio, read scene state
+- **Browser source overlay** — emote streaks, emote pyramids, sound effects
+- **Channel point rewards** — wide cam toggle, mic mute with countdown, timeout animations
+- **Auto-reconnect** — recovers when OBS restarts
 
-### Discord
-- Slash command support
-- Permission-based message relay
-- Discord <> Twitch chat bridge
+### Sounds
+- Drop `.mp3` files in `sounds/` — they become `!playsound <name>` commands automatically
+- In-browser preview on the `/sounds` page
+- Volume control from the dashboard
 
-### Electron Media Player
-- Desktop-based song request player
-- Stream-safe media playback controls
-- Queue management for viewer requests
-- Integrated with Twitch chat workflows
-- Designed for live stream music automation
+### Web Interface
+- **Public pages** (no login): `/commands`, `/leaderboard`, `/sounds`, `/stats`, `/health`
+- **Admin panel** (password-protected): `/dashboard`, `/player`, `/chat`, `/logs`
+- **Chat page** — unified Twitch + Kick chat viewer with platform badges and emotes; send messages as the bot
+- **Chat overlay** — `/chat/overlay` OBS browser source with transparent background
+- **Live logs** — real-time bot output with color-coded tags
 
-### System
-- Centralized environment validation
-- Shared in-memory runtime state
-- Graceful shutdown handling
-- Structured logging
+## Quick Start
 
-## Architecture
-
-This project follows a modular integration-based architecture:
-
-- **Dependency Injection** for Twitch reward handlers
-- **Singleton OBS Controller** encapsulating WebSocket logic
-- **Shared Runtime State** for consistent timeout stacking across commands and rewards
-- **Centralized Configuration Layer** with environment validation
-- **Separation of Concerns** between Twitch, Discord, OBS, Electron media systems, and core runtime layers
-
-## Setup
-
-### 1. Install dependencies
 ```bash
+git clone https://github.com/ivocosta22/streamerstalker.git
+cd streamerstalker
 npm install
-```
-
-### 2. Create environment file
-
-Copy:
-```bash
-.env.example
-```
-
-To:
-```bash
-.env
-```
-
-Fill in the required credentials.
-
-### 3. Run the bot
-```bash
+cp .env.example .env    # fill in your credentials
 npm start
 ```
 
-## Environment Variables
+For the song request player (separate terminal):
+```bash
+cd player
+npm install
+npm start
+```
 
-Configuration is validated at startup.
+See [DEPLOYMENT.md](DEPLOYMENT.md) for the full setup guide covering Twitch OAuth, Discord setup, OBS configuration, Kick chat, Cloudflare Tunnel, and troubleshooting.
 
-Missing required variables will throw an error and prevent the bot from starting.
+## Tech Stack
 
-Make sure the .env file is properly set up before running. Use the .env.example as reference.
+- **Runtime** — Node.js 18+
+- **Chat** — [tmi.js](https://tmijs.com/) (Twitch), Pusher WebSocket (Kick), [discord.js](https://discord.js.org/) (Discord)
+- **Web** — Express with SSE for real-time updates
+- **OBS** — [obs-websocket-js](https://github.com/obs-websocket-community-projects/obs-websocket-js)
+- **Player** — Electron with YouTube iframe API
+- **Storage** — flat JSON files in `data/` (no database required)
+- **APIs** — Twitch Helix, Riot Games, YouTube Data v3
 
-## Chat Token Storage
+## Project Structure
 
-User OAuth tokens are persisted locally in:
+```
+SurferStalker/
+├── src/
+│   ├── app.js                        # Entry point
+│   ├── server.js                     # Express server
+│   ├── config/                       # Environment, settings, timers
+│   ├── integrations/
+│   │   ├── twitch/                   # Commands, rewards, timers, emotes, badges
+│   │   ├── kick/                     # Kick chat listener with badges and emotes
+│   │   ├── discord/                  # Slash commands and chat bridge
+│   │   ├── obs/                      # OBS WebSocket controller
+│   │   ├── overlay/                  # OBS browser source (emotes, sounds)
+│   │   ├── player/                   # Song request WebSocket client
+│   │   ├── points/                   # Economy system
+│   │   └── riot/                     # Riot Games API (League rank)
+│   ├── web/                          # Web interface routes and pages
+│   └── utils/                        # Logger, data store
+├── player/                           # Electron song request player
+├── sounds/                           # Drop .mp3 files here
+├── data/                             # Persistent state (gitignored)
+└── .env.example                      # Configuration template
+```
 
-src/config/tokens/twitch-user-tokens.json
+## Configuration
 
-By default, if the file doesn't exist, it will be automatically created.
+All configuration lives in `.env`. Copy `.env.example` and fill in your credentials. See [DEPLOYMENT.md](DEPLOYMENT.md) for a full breakdown of every variable.
 
-The tokens directory must exist prior to runtime.
+Key optional features:
+- **Kick chat** — set `KICK_CHATROOM_ID` to enable
+- **League rank** — set `RIOT_API_KEY` (get one at [developer.riotgames.com](https://developer.riotgames.com))
+- **Admin panel** — set `WEB_ADMIN_PASSWORD` to enable
+- **Public URL** — set `WEB_PUBLIC_URL` for clickable links in chat
 
-The tokens file is excluded from version control.
+## License
 
-## Technologies
-
-- Node.js
-- Express
-- Electron
-- Twitch Helix API
-- Comfy.js
-- tmi.js
-- Discord.js
-- OBS WebSocket
+See [LICENSE](LICENSE).

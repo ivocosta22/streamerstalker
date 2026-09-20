@@ -82,13 +82,22 @@ module.exports = Object.freeze({
     timezone: requireEnv('STREAMER_TIMEZONE')
   }),
 
-  twitchChannelPointsRewards: Object.freeze({
-    songRequest: requireEnv('TWITCH_CHANNEL_POINTS_REWARD_SONG_REQUEST'),
-    timeout: requireEnv('TWITCH_CHANNEL_POINTS_REWARD_TIMEOUT'),
-    wideCam: requireEnv('TWITCH_CHANNEL_POINTS_REWARD_WIDE_CAM'),
-    mute5: requireEnv('TWITCH_CHANNEL_POINTS_REWARD_MUTE_5MIN'),
-    mute10: requireEnv('TWITCH_CHANNEL_POINTS_REWARD_MUTE_10MIN')
+  // Kick's channel lookup is Cloudflare-protected, so the numeric chatroom id
+  // often has to be supplied by hand. See .env.example for how to find it.
+  kick: Object.freeze({
+    enabled: optionalEnvBool('KICK_CHAT_ENABLED', true),
+    chatroomId: process.env.KICK_CHATROOM_ID || null
   }),
+
+  twitchChannelPointsRewards: (function () {
+    const sr = process.env.TWITCH_CHANNEL_POINTS_REWARD_SONG_REQUEST
+    const to = process.env.TWITCH_CHANNEL_POINTS_REWARD_TIMEOUT
+    const wc = process.env.TWITCH_CHANNEL_POINTS_REWARD_WIDE_CAM
+    const m5 = process.env.TWITCH_CHANNEL_POINTS_REWARD_MUTE_5MIN
+    const m10 = process.env.TWITCH_CHANNEL_POINTS_REWARD_MUTE_10MIN
+    if (!sr && !to && !wc && !m5 && !m10) return null
+    return Object.freeze({ songRequest: sr, timeout: to, wideCam: wc, mute5: m5, mute10: m10 })
+  })(),
 
   discord: Object.freeze({
     botToken: requireEnv('DISCORD_BOT_TOKEN'),
@@ -111,5 +120,17 @@ module.exports = Object.freeze({
 
   chat: Object.freeze({
     enabled: optionalEnvBool('CHAT_ENABLED', true)
+  }),
+
+  riot: Object.freeze({
+    apiKey: process.env.RIOT_API_KEY || null
+  }),
+
+  // Admin pages stay off until a password is set, so exposing the server to the
+  // internet can never accidentally publish the control panel.
+  web: Object.freeze({
+    adminPassword: process.env.WEB_ADMIN_PASSWORD || null,
+    publicUrl: (process.env.WEB_PUBLIC_URL || '').replace(/\/+$/, '') || null,
+    publicPages: optionalEnvBool('WEB_PUBLIC_PAGES', true)
   })
 })
