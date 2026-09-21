@@ -48,6 +48,7 @@ function pushEntry(entry) {
     emotes: null,
     parsedMessage: entry.parsedMessage || null,
     resolvedBadges: entry.resolvedBadges || null,
+    profilePic: entry.profilePic || null,
     timestamp: entry.timestamp || Date.now()
   })
 }

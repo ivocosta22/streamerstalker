@@ -5,7 +5,7 @@ const { getToken } = require('../twitch/twitchAPI')
 
 const avatarCache = new Map()
 const AVATAR_TTL = 60 * 60 * 1000
-const KICK_AVATAR = 'https://kick.com/img/kick-logo.svg'
+const KICK_FALLBACK = 'https://kick.com/img/kick-logo.svg'
 
 let webhook = null
 let unsubscribe = null
@@ -93,7 +93,7 @@ async function start(discordClient) {
     if (entry.platform === 'twitch') {
       avatarURL = await fetchTwitchAvatar(entry.user)
     } else {
-      avatarURL = KICK_AVATAR
+      avatarURL = entry.profilePic || KICK_FALLBACK
     }
 
     try {

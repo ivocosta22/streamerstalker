@@ -236,6 +236,7 @@ function handleChatMessage(payload) {
     user,
     userId: String(sender.id || ''),
     color: identity.color || null,
+    profilePic: sender.profile_pic || null,
     message: content,
     parsedMessage: parseKickMessage(content),
     resolvedBadges: mapBadges(badges, identity.badges_v2),
