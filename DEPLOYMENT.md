@@ -15,11 +15,12 @@
 9. [OBS setup](#obs-setup)
 10. [Running the bot](#running-the-bot)
 11. [The web interface](#the-web-interface)
-12. [The song request player](#the-song-request-player)
-13. [Chat client (desktop window)](#chat-client-desktop-window)
-14. [Configuration files](#configuration-files)
-15. [Customizing the bot](#customizing-the-bot)
-16. [Troubleshooting](#troubleshooting)
+12. [Emote support](#emote-support)
+13. [The song request player](#the-song-request-player)
+14. [Chat client (desktop window)](#chat-client-desktop-window)
+15. [Configuration files](#configuration-files)
+16. [Customizing the bot](#customizing-the-bot)
+17. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -202,6 +203,16 @@ Add `http://localhost:3000` as an OAuth Redirect URL in your Twitch app settings
 | `KICK_CHATROOM_ID` | Numeric Kick chatroom ID. The bot tries to auto-detect it from `KICK_CHANNEL_URL` on boot, but Cloudflare usually blocks that call. See `.env.example` for how to find it manually. |
 | `STREAMER_TIMEZONE` | IANA timezone, e.g. `Europe/Lisbon`, `America/New_York` |
 
+### Kick API (optional — for sending messages and moderation)
+
+| Variable | Description |
+|---|---|
+| `KICK_CLIENT_ID` | Client ID from the bot's Kick developer app |
+| `KICK_CLIENT_SECRET` | Client secret from the same app |
+| `KICK_BROADCASTER_USER_ID` | Streamer's numeric Kick user ID (not the chatroom ID). Find it in the page source of the Kick channel page. |
+
+Leave these blank to run Kick in listen-only mode. See [Kick chat setup](#kick-chat-setup) for the full walkthrough.
+
 ### Channel point rewards
 
 Channel point rewards are configured from the **dashboard** (`/dashboard`), not `.env`. Each reward maps a Twitch reward UUID to an action (Song Request, Timeout, Wide Cam, or Mute Mic). If you had reward UUIDs in `.env` from an older setup, they are migrated automatically on the first boot.
@@ -280,7 +291,9 @@ Tokens are saved to `src/config/tokens/twitch-user-tokens.json` (gitignored). Yo
 
 ## Kick chat setup
 
-Kick chat is read-only — the bot listens to messages and displays them in the chat overlay alongside Twitch. No Kick account is needed for this.
+Kick integration has two layers: **listening** (read chat via Pusher — no account needed) and **sending** (post messages and moderate via Kick's API — requires a Kick app).
+
+### Listening to Kick chat
 
 1. Set `KICK_CHAT_ENABLED=true` in `.env` (this is the default).
 2. Find your chatroom ID:
@@ -295,7 +308,32 @@ The bot auto-detects the chatroom ID from `KICK_CHANNEL_URL` on boot, but Cloudf
 Kick chat messages appear in:
 - `/chat` — the admin chat page, with Kick badges and emotes
 - `/chat/overlay` — the OBS browser source overlay
-- 7TV emotes are resolved on Kick (same channel set as Twitch). BTTV and FFZ are Twitch-only.
+- 7TV emotes are resolved on Kick (same channel set as Twitch), including zero-width overlay emotes. BTTV and FFZ are Twitch-only.
+
+### Sending messages and moderating on Kick
+
+To send chat messages as the bot and use moderation buttons (timeout/ban) on Kick users, you need a Kick API app:
+
+1. Log into the **bot's Kick account** (not the streamer's).
+2. Go to Account Settings → Developer → Create App.
+3. Set the redirect URI to `http://localhost:3000/kick/callback` (must match your `SERVER_PORT`).
+4. Copy the credentials into `.env`:
+   ```
+   KICK_CLIENT_ID=<your app's client id>
+   KICK_CLIENT_SECRET=<your app's client secret>
+   KICK_BROADCASTER_USER_ID=<streamer's numeric Kick user id>
+   ```
+5. Start the bot. It prints a Kick authorization URL at startup — open it in your browser while logged into the bot's Kick account, and approve the permissions.
+6. The bot confirms `[KICK] Authorization complete` in the logs. Tokens are saved to `data/kick-tokens.json` and refresh automatically.
+
+With Kick authorized, you can:
+- Send messages from the `/chat` page using the Kick send box
+- Use moderation buttons (timeout, ban) on Kick messages in `/chat` and the chat client
+- The bot responds to commands from Kick chat the same as Twitch
+
+### Points separation
+
+Twitch and Kick users have **separate point balances**, even if they share a username. Kick users are stored with a `kick:` prefix internally. The `/leaderboard` page shows a Kick icon next to Kick users' names.
 
 ---
 
@@ -409,6 +447,22 @@ For a quick test, `ngrok http 3000` gives a temporary URL.
 - Mutating API calls require JSON content-type (blocks cross-site form posts).
 - `/overlay` stays open for OBS, but `/overlay/test` requires admin.
 - `trust proxy` is on so the rate limiter sees real IPs through the tunnel.
+
+---
+
+## Emote support
+
+The bot fetches and caches third-party emotes on startup (and refreshes every 30 minutes). Emotes render in `/chat`, `/chatpop`, the chat client, and the OBS overlay.
+
+| Provider | Platforms | Types |
+|---|---|---|
+| **Twitch native** | Twitch only | Global, sub emotes, animated emotes — resolved from IRC tags |
+| **7TV** | Twitch + Kick | Global + channel set, including **zero-width overlay emotes** (e.g. `RainTime`, `PETPET`, `cvHazmat`) — these layer on top of the previous emote |
+| **BTTV** | Twitch only | Global + channel emotes |
+| **FFZ** | Twitch only | Global + channel emotes |
+| **Kick native** | Kick only | Kick's own `[emote:id:name]` format — resolved inline |
+
+7TV zero-width emotes are detected via the `flags` field on the emote set entry (flag `1`). They render with negative margin to overlap the preceding emote, matching how 7TV's browser extension displays them.
 
 ---
 

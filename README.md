@@ -1,8 +1,6 @@
 # SurferStalker
 
-A custom Twitch & Discord bot with OBS integration, a channel points economy, an Electron-based song request player, and a multi-platform chat overlay.
-
-Built in Node.js. Designed to replace StreamElements with something fully self-hosted and extensible.
+A Twitch + Kick + Discord bot built in Node.js with a web interface, OBS integration, song requests, and a points economy. Fully self-hosted — no StreamElements or third-party services needed.
 
 ## Features
 
@@ -10,13 +8,23 @@ Built in Node.js. Designed to replace StreamElements with something fully self-h
 - **60+ built-in commands** across points, games, music, stream info, sounds, moderation, and fun
 - **Custom commands** — create, edit, and delete from chat or the dashboard
 - **Chat timers** — recurring messages with activity thresholds and online/offline intervals
-- **Custom Built-in commands** — channel-specific commands (`!cannon`, `!rank`, `!wither`) separated from the public build
+- **Custom Built-in commands** — channel-specific commands separated from the public build
 
 ### Multi-Platform Chat
 - **Twitch chat** — full command handling, moderation, and channel point rewards
-- **Kick chat** — real-time listener via Pusher WebSocket with native Kick emotes and role badges (broadcaster, moderator, VIP, OG, verified, staff, bot, founder)
+- **Kick chat** — real-time listener via Pusher WebSocket, plus send and moderate via Kick API (OAuth PKCE)
 - **Unified chat overlay** — merges Twitch and Kick into a single OBS browser source with platform icons
-- **Third-party emotes** — 7TV, BTTV, and FFZ (global + channel) on Twitch; 7TV on Kick
+- **Chat client** — standalone Electron desktop app with moderation buttons, buildable as a portable `.exe`
+- **Moderation buttons** — timeout (1s, 5m, 1d), ban, and delete on every message in `/chat`, `/chatpop`, and the chat client — works for both Twitch and Kick
+- **Separate point balances** — Twitch and Kick users are tracked independently, even with the same username
+
+### Emote Support
+- **7TV** — global + channel emotes on both Twitch and Kick, including **zero-width overlay emotes** (e.g. `RainTime`, `PETPET`) that layer on top of the previous emote
+- **BTTV** — global + channel emotes (Twitch only)
+- **FFZ** — global + channel emotes (Twitch only)
+- **Twitch native** — all emotes including animated sub emotes from other channels
+- **Kick native** — Kick's own `[emote:id:name]` format resolved inline
+- Emotes are cached and refreshed every 30 minutes
 
 ### Discord Integration
 - **Slash commands** — `/ping`, `/coinflip`, `/say`, `/rank`
@@ -25,7 +33,7 @@ Built in Node.js. Designed to replace StreamElements with something fully self-h
 
 ### League of Legends (`!rank`)
 - Shows the streamer's solo queue rank with win rate across multiple accounts
-- `!rank Name#Tag` — look up any player's rank (Twitch and Discord)
+- `!rank Name#Tag` — look up any player by Riot ID
 - `/rank` — Discord slash command with optional username parameter
 - Powered by the Riot Games API
 
@@ -34,7 +42,7 @@ Built in Node.js. Designed to replace StreamElements with something fully self-h
 - **Gambling** — `!gamble`, `!slots` with configurable payouts
 - **Duels** — `!duel` with accept/deny flow
 - **Raffles** — streamer-started with `!raffle`, viewers join with `!join`
-- **Leaderboard** — public page and `!leaderboard` command
+- **Leaderboard** — public page and `!leaderboard` command (shows Kick icon next to Kick users)
 - **Admin tools** — give, remove, set points from chat or dashboard
 - **VIP redemption** — `!redeemvip` spends points for Twitch VIP
 
@@ -58,8 +66,8 @@ Built in Node.js. Designed to replace StreamElements with something fully self-h
 
 ### Web Interface
 - **Public pages** (no login): `/commands`, `/leaderboard`, `/sounds`, `/stats`, `/health`
-- **Admin panel** (password-protected): `/dashboard`, `/player`, `/chat`, `/logs`
-- **Chat page** — unified Twitch + Kick chat viewer with platform badges and emotes; send messages as the bot
+- **Admin panel** (password-protected): `/dashboard`, `/player`, `/chat`, `/chatpop`, `/logs`
+- **Chat page** — unified Twitch + Kick viewer with platform badges, emotes, moderation, and send-as-bot
 - **Chat overlay** — `/chat/overlay` OBS browser source with transparent background
 - **Live logs** — real-time bot output with color-coded tags
 
@@ -73,14 +81,14 @@ cp .env.example .env    # fill in your credentials
 npm start
 ```
 
-For the song request player (separate terminal):
+Optional — song request player and chat client:
+
 ```bash
-cd player
-npm install
-npm start
+cd player && npm install && cd ..   # desktop song request player
+cd chat && npm install && cd ..     # desktop chat client
 ```
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for the full setup guide covering Twitch OAuth, Discord setup, OBS configuration, Kick chat, Cloudflare Tunnel, and troubleshooting.
+See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full setup guide covering Twitch OAuth, Discord setup, Kick chat (listening + sending), OBS configuration, Cloudflare Tunnel, Raspberry Pi deployment, and troubleshooting.
 
 ## Tech Stack
 
@@ -88,33 +96,36 @@ See [DEPLOYMENT.md](DEPLOYMENT.md) for the full setup guide covering Twitch OAut
 - **Chat** — [tmi.js](https://tmijs.com/) (Twitch), Pusher WebSocket (Kick), [discord.js](https://discord.js.org/) (Discord)
 - **Web** — Express with SSE for real-time updates
 - **OBS** — [obs-websocket-js](https://github.com/obs-websocket-community-projects/obs-websocket-js)
-- **Player** — Electron with YouTube iframe API
+- **Player / Chat client** — Electron (buildable as standalone `.exe` with electron-builder)
 - **Storage** — flat JSON files in `data/` (no database required)
-- **APIs** — Twitch Helix, Riot Games, YouTube Data v3
+- **APIs** — Twitch Helix, Kick API v1, Riot Games, YouTube Data v3
 
-## Project Structure
+## Repository Layout
 
 ```
 SurferStalker/
 ├── src/
 │   ├── app.js                        # Entry point
 │   ├── server.js                     # Express server
-│   ├── config/                       # Environment, settings, timers
+│   ├── config/                       # Environment, settings, timers, tokens
 │   ├── integrations/
 │   │   ├── twitch/                   # Commands, rewards, timers, emotes, badges
-│   │   ├── kick/                     # Kick chat listener with badges and emotes
+│   │   ├── kick/                     # Chat listener, send, auth, moderation
 │   │   ├── discord/                  # Slash commands and chat bridge
 │   │   ├── obs/                      # OBS WebSocket controller
 │   │   ├── overlay/                  # OBS browser source (emotes, sounds)
 │   │   ├── player/                   # Song request WebSocket client
-│   │   ├── points/                   # Economy system
+│   │   ├── points/                   # Economy: currency, gamble, slots, duel, raffle
 │   │   └── riot/                     # Riot Games API (League rank)
 │   ├── web/                          # Web interface routes and pages
+│   ├── state/                        # Runtime state
 │   └── utils/                        # Logger, data store
-├── player/                           # Electron song request player
-├── sounds/                           # Drop .mp3 files here
+├── chat/                             # Electron chat client (separate app)
+├── player/                           # Electron song request player (separate app)
+├── sounds/                           # Drop .mp3 files here — they become commands
 ├── data/                             # Persistent state (gitignored)
-└── .env.example                      # Configuration template
+├── .env.example                      # Configuration template
+└── DEPLOYMENT.md                     # Full setup and deployment guide
 ```
 
 ## Configuration
@@ -122,10 +133,14 @@ SurferStalker/
 All configuration lives in `.env`. Copy `.env.example` and fill in your credentials. See [DEPLOYMENT.md](DEPLOYMENT.md) for a full breakdown of every variable.
 
 Key optional features:
-- **Kick chat** — set `KICK_CHATROOM_ID` to enable
+- **Kick chat** — set `KICK_CHATROOM_ID` to listen; add `KICK_CLIENT_ID` + `KICK_CLIENT_SECRET` + `KICK_BROADCASTER_USER_ID` to send and moderate
 - **League rank** — set `RIOT_API_KEY` (get one at [developer.riotgames.com](https://developer.riotgames.com))
 - **Admin panel** — set `WEB_ADMIN_PASSWORD` to enable
-- **Public URL** — set `WEB_PUBLIC_URL` for clickable links in chat
+- **Public URL** — set `WEB_PUBLIC_URL` for clickable links in chat (e.g. via Cloudflare Tunnel)
+
+## Raspberry Pi
+
+The bot runs headless on a Pi 4/5 (64-bit Pi OS, 2+ GB RAM). Skip the player and chat client folders — those run on your desktop. Use systemd for auto-start on boot. Full instructions in [DEPLOYMENT.md](DEPLOYMENT.md).
 
 ## License
 

@@ -123,7 +123,7 @@ function parseMessage(text, twitchEmotes) {
       segments.push({
         type: 'emote',
         name: text.slice(p.start, p.end),
-        url: `https://static-cdn.jtvnbs.net/emoticons/v2/${p.id}/default/dark/2.0`,
+        url: `https://static-cdn.jtvnw.net/emoticons/v2/${p.id}/default/dark/2.0`,
         provider: 'twitch'
       })
       last = p.end
