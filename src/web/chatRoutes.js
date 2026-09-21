@@ -88,8 +88,12 @@ const CHAT_JS = `
   function renderSegments(segs) {
     if (!segs || !segs.length) return '';
     return segs.map(function (s) {
-      if (s.type === 'emote') return '<img src="' + escHtml(s.url) + '" alt="' + escHtml(s.name) +
-        '" title="' + escHtml(s.name) + '" style="height:28px;vertical-align:middle;margin:0 2px">';
+      if (s.type === 'emote') {
+        if (s.zeroWidth) return '<img src="' + escHtml(s.url) + '" alt="' + escHtml(s.name) +
+          '" title="' + escHtml(s.name) + '" style="height:28px;vertical-align:middle;margin-left:-28px;position:relative;z-index:1">';
+        return '<img src="' + escHtml(s.url) + '" alt="' + escHtml(s.name) +
+          '" title="' + escHtml(s.name) + '" style="height:28px;vertical-align:middle;margin:0 2px">';
+      }
       return escHtml(s.value);
     }).join('');
   }
@@ -261,6 +265,11 @@ const OVERLAY_HTML = `<!DOCTYPE html>
     vertical-align: middle;
     margin: 0 2px;
   }
+  .msg .emote.zw {
+    margin-left: -28px;
+    position: relative;
+    z-index: 1;
+  }
   .msg .tbadge {
     display: inline-block;
     font-size: 10px;
@@ -331,8 +340,12 @@ function platformHtml(p) {
 function renderSegments(segs) {
   if (!segs || !segs.length) return '';
   return segs.map(function (s) {
-    if (s.type === 'emote') return '<img class="emote" src="' + esc(s.url) + '" alt="' + esc(s.name) +
-      '" title="' + esc(s.name) + '">';
+    if (s.type === 'emote') {
+      if (s.zeroWidth) return '<img class="emote zw" src="' + esc(s.url) + '" alt="' + esc(s.name) +
+        '" title="' + esc(s.name) + '">';
+      return '<img class="emote" src="' + esc(s.url) + '" alt="' + esc(s.name) +
+        '" title="' + esc(s.name) + '">';
+    }
     return esc(s.value);
   }).join('');
 }
@@ -657,8 +670,12 @@ function platformBadge(p) {
 function renderSegments(segs) {
   if (!segs || !segs.length) return '';
   return segs.map(function (s) {
-    if (s.type === 'emote') return '<img src="' + escHtml(s.url) + '" alt="' + escHtml(s.name) +
-      '" title="' + escHtml(s.name) + '" style="height:28px;vertical-align:middle;margin:0 2px">';
+    if (s.type === 'emote') {
+      if (s.zeroWidth) return '<img src="' + escHtml(s.url) + '" alt="' + escHtml(s.name) +
+        '" title="' + escHtml(s.name) + '" style="height:28px;vertical-align:middle;margin-left:-28px;position:relative;z-index:1">';
+      return '<img src="' + escHtml(s.url) + '" alt="' + escHtml(s.name) +
+        '" title="' + escHtml(s.name) + '" style="height:28px;vertical-align:middle;margin:0 2px">';
+    }
     return escHtml(s.value);
   }).join('');
 }

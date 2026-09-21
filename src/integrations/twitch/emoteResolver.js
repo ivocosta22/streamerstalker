@@ -49,7 +49,9 @@ function add7TVEmotes(map, emotes) {
     const host = e.data?.host
     if (!host?.url) continue
     const base = 'https:' + host.url
-    map[e.name] = { url: `${base}/2x.webp`, provider: '7tv' }
+    const entry = { url: `${base}/2x.webp`, provider: '7tv' }
+    if ((e.flags ?? 0) & 1) entry.zeroWidth = true
+    map[e.name] = entry
   }
 }
 
@@ -146,7 +148,9 @@ function pushThirdParty(segments, text, allow) {
   for (const tok of tokens) {
     const emote = emoteMap[tok]
     if (emote && (!allow || allow.has(emote.provider))) {
-      segments.push({ type: 'emote', name: tok, url: emote.url, provider: emote.provider })
+      const seg = { type: 'emote', name: tok, url: emote.url, provider: emote.provider }
+      if (emote.zeroWidth) seg.zeroWidth = true
+      segments.push(seg)
     } else {
       const prev = segments.length ? segments[segments.length - 1] : null
       if (prev && prev.type === 'text') {
