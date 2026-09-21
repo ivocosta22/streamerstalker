@@ -21,21 +21,7 @@ const SEED_KEY = 'customisedBuiltIns'
  * @param {string} deps.kickChannelUrl from env, so the seeded !kick keeps working
  */
 function defaults({ kickChannelUrl }) {
-  const pentas = "Surfer's Pentas in Synapse's channel here: https://youtu.be/qkZ2sukhVRU?t=266 - https://youtu.be/PStKAXach6Y?t=255 - https://youtu.be/lly9zvmxLF0?t=579"
-  const games = 'https://docs.google.com/spreadsheets/d/1_CKIaCLP_IbpAglM98tuiQkbwyO_oDgYcVxrmHbZNBo/edit?usp=sharing'
-
-  return {
-    discord: "You're In EZ Clap https://discord.gg/FM9b3m7wUy",
-    kick: kickChannelUrl,
-    games,
-    gamelist: games,
-    gameslist: games,
-    penta: pentas,
-    pentakill: pentas,
-    pentas: pentas,
-    sick: 'Surfer is currently not sick. FeelsOkayMan',
-    trihard: "When Surfer is on trihard mode, it means that he's focused 100% on the game. He will answer chat messages when dead/recalling. Surfer does not talk when in trihard mode."
-  }
+  return {}
 }
 
 /**

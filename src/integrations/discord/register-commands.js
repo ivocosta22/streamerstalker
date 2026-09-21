@@ -46,18 +46,6 @@ const commands = [
         name: 'coinflip',
         description: 'Flip a coin (heads or tails)',
     },
-    {
-        name: 'rank',
-        description: 'Look up a League of Legends rank',
-        options: [
-            {
-                name: 'username',
-                description: 'Riot ID (e.g. Delfortin#1701). Leave empty for streamer accounts.',
-                type: ApplicationCommandOptionType.String,
-                required: false,
-            },
-        ]
-    },
 ]
 
 async function registerCommands() {

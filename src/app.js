@@ -18,7 +18,7 @@
 // System Initialization
 // ============================================================
 const { logColor } = require('./utils/logger')
-logColor('cyan', '[SYSTEM] 👓 SurferStalker is starting...')
+logColor('cyan', '[SYSTEM] 👓 StreamerStalker is starting...')
 
 
 const { twitch, discord, obs, chat, streamer, kick } = require('./config/env')
@@ -29,14 +29,12 @@ const { createCommands } = require('./integrations/twitch/twitchCommands')
 const customCommands = require('./integrations/twitch/customCommands')
 const commandToggles = require('./integrations/twitch/commandToggles')
 const seedCommands = require('./integrations/twitch/seedCommands')
-const cannonStacks = require('./integrations/twitch/cannonStacks')
 const pointsAccrual = require('./integrations/points/accrual')
 const pointsStore = require('./integrations/points/pointsStore')
 const overlayEmotes = require('./integrations/overlay/emotes')
 const overlayTracker = require('./integrations/overlay/tracker')
 const overlaySounds = require('./integrations/overlay/sounds')
 const overlayActions = require('./integrations/overlay/actions')
-const { registerTwitchRewards } = require('./integrations/twitch/twitchRewards')
 const { startTitleMonitor } = require('./integrations/twitch/titleMonitor')
 const { startChatTimers, recordChatLine } = require('./integrations/twitch/chatTimers')
 const pingList = require('./config/titleUpdatePingList')
@@ -96,7 +94,7 @@ if (kick.clientId && !kickAuth.isAuthorized()) {
   const url = kickAuth.getAuthorizeUrl()
   if (url) {
     logColor('yellow', '[KICK] Bot is not authorized to send messages yet')
-    logColor('cyan', `[KICK] Authorize here (logged in as SurferStalker on Kick): ${url}`)
+    logColor('cyan', `[KICK] Authorize here (logged in as StreamerStalker on Kick): ${url}`)
   }
 }
 
@@ -157,10 +155,6 @@ const botState = require('./state/botState')
 
 seedCommands.run({ kickChannelUrl: streamer.kickChannelUrl, logColor })
 
-const rewardStore = require('./integrations/twitch/rewardStore')
-const envRewards = require('./config/env').twitchChannelPointsRewards
-if (envRewards) rewardStore.seedFromEnv(envRewards, logColor)
-
 const commands = createCommands({
   ComfyJS,
   obsController,
@@ -175,13 +169,12 @@ const commands = createCommands({
   logColor
 })
 
-registerTwitchRewards({ ComfyJS, botState, obsController, logColor })
 startTitleMonitor({ ComfyJS, botState, logColor, pingList })
 pointsAccrual.start({ logColor })
 overlayEmotes.start()
 let _discordClient = null
 
-const TWITCH_ONLY_COMMANDS = new Set(['wither', 'vanish', 'so', 'redeemvip'])
+const TWITCH_ONLY_COMMANDS = new Set(['vanish', 'so', 'redeemvip'])
 
 async function dispatchCommand(message, reply, { platform = 'twitch' } = {}) {
   const trimmed = message.trim()
@@ -357,13 +350,6 @@ twitchChatClient.on('message', async (target, context, msg, self) => {
     logColor('red', `[SYSTEM] Tracker error: ${err?.message || err}`)
   }
 
-  if (message === '-10') {
-    const stacks = cannonStacks.removeStacks(10)
-    const response = `Surfer lagged Kappa and lost a total of ${stacks} stacks LULE`
-    if (chat.enabled) twitchChatClient.say(target, response)
-    return
-  }
-
   await dispatchCommand(message, (response) => {
     if (chat.enabled) twitchChatClient.say(target, response)
   }, { platform: 'twitch' })
@@ -397,7 +383,7 @@ const discordClient = _discordClient = new Client({
 
 discordClient.once('clientReady', () => {
   try {
-    discordClient.user.setActivity('👀 Watching SurferKiller', { type: ActivityType.Watching })
+    discordClient.user.setActivity('👀 Watching streams', { type: ActivityType.Watching })
     logColor('green', `[DISCORD] ✅ Logged in as ${discordClient.user.tag}`)
   } catch (err) {
     logColor('red', `[DISCORD] ❌ Error in ready handler: ${err?.message || err}`)
@@ -422,15 +408,6 @@ discordClient.on('interactionCreate', async (interaction) => {
     if (name === 'coinflip') {
       const result = Math.random() < 0.5 ? 'Flip Flop! You got Heads' : 'Flip Flop! You got Tails'
       await interaction.reply(result)
-      return
-    }
-
-    if (name === 'rank') {
-      await interaction.deferReply()
-      const { getAllRanks, lookupRank } = require('./integrations/riot/riotAPI')
-      const username = interaction.options.getString('username')
-      const reply = username ? await lookupRank(username) : await getAllRanks()
-      await interaction.editReply(reply)
       return
     }
 

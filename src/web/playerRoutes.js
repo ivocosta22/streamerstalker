@@ -230,7 +230,7 @@ function playerBody() {
 module.exports = function mountPlayerRoutes(router, { auth, page, player }) {
   router.get('/player', auth.requireAdmin, (_req, res) => {
     res.send(page({
-      title: 'Player · SurferStalker',
+      title: 'Player · StreamerStalker',
       active: '/player',
       heading: 'Player',
       sub: 'Queue and playback for song requests. Mirrors the player app.',

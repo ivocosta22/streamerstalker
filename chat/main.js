@@ -34,7 +34,7 @@ app.whenReady().then(() => {
     minHeight: 200,
     autoHideMenuBar: true,
     backgroundColor: '#0e0e10',
-    title: 'SurferStalker Chat',
+    title: 'StreamerStalker Chat',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true
@@ -58,7 +58,7 @@ app.whenReady().then(() => {
     if (!win) return
     const next = !win.isAlwaysOnTop()
     win.setAlwaysOnTop(next)
-    win.setTitle(next ? 'SurferStalker Chat (pinned)' : 'SurferStalker Chat')
+    win.setTitle(next ? 'StreamerStalker Chat (pinned)' : 'StreamerStalker Chat')
   })
 
   win.on('closed', () => { win = null })

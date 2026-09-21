@@ -92,16 +92,6 @@ module.exports = Object.freeze({
     broadcasterUserId: process.env.KICK_BROADCASTER_USER_ID || null
   }),
 
-  twitchChannelPointsRewards: (function () {
-    const sr = process.env.TWITCH_CHANNEL_POINTS_REWARD_SONG_REQUEST
-    const to = process.env.TWITCH_CHANNEL_POINTS_REWARD_TIMEOUT
-    const wc = process.env.TWITCH_CHANNEL_POINTS_REWARD_WIDE_CAM
-    const m5 = process.env.TWITCH_CHANNEL_POINTS_REWARD_MUTE_5MIN
-    const m10 = process.env.TWITCH_CHANNEL_POINTS_REWARD_MUTE_10MIN
-    if (!sr && !to && !wc && !m5 && !m10) return null
-    return Object.freeze({ songRequest: sr, timeout: to, wideCam: wc, mute5: m5, mute10: m10 })
-  })(),
-
   discord: Object.freeze({
     botToken: requireEnv('DISCORD_BOT_TOKEN'),
     botId: requireEnv('DISCORD_BOT_ID'),

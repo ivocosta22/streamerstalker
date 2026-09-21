@@ -1,10 +1,10 @@
-# SurferStalker Deployment Guide
+# StreamerStalker Deployment Guide
 
 ---
 
 ## Table of Contents
 
-1. [What is SurferStalker?](#what-is-surferstalker)
+1. [What is StreamerStalker?](#what-is-streamerstalker)
 2. [Repository layout](#repository-layout)
 3. [System requirements](#system-requirements)
 4. [Setup](#setup)
@@ -24,11 +24,11 @@
 
 ---
 
-## What is SurferStalker?
+## What is StreamerStalker?
 
 A Twitch + Kick + Discord bot built in Node.js. It bundles:
 
-- **The bot** (`src/`) — connects to Twitch chat, Kick chat, Discord, OBS, and the Riot Games API. Serves a web interface with public pages and an admin control panel.
+- **The bot** (`src/`) — connects to Twitch chat, Kick chat, Discord, and OBS. Serves a web interface with public pages and an admin control panel.
 - **The song request player** (`player/`) — an Electron desktop app that plays YouTube song requests. Viewers queue songs with `!sr` and a backup playlist fills the gaps.
 - **The overlay** (`src/integrations/overlay/`) — an OBS browser source for emote streaks, pyramids, and sound effects.
 - **The chat overlay** (`/chat/overlay`) — an OBS browser source that merges Twitch and Kick chat into a single feed with platform icons, badges, and third-party emotes (7TV, BTTV, FFZ).
@@ -60,7 +60,6 @@ StreamerStalker/
 │   │   ├── overlay/              # OBS browser-source overlay (emotes, sounds)
 │   │   ├── player/               # WebSocket client for the Electron player
 │   │   ├── points/               # Economy: currency, gamble, slots, duel, raffle
-│   │   └── riot/                 # Riot Games API (League rank lookup)
 │   ├── web/                      # Web interface (public pages + admin panel)
 │   ├── state/                    # Runtime state (cooldowns, uptime)
 │   └── utils/                    # Logger, JSON data store
@@ -163,7 +162,7 @@ Everything is loaded at startup by `src/config/env.js`. Missing required variabl
 |---|---|
 | `TWITCH_COMMAND_PREFIX` | Command prefix character, usually `!` |
 | `TWITCH_CHANNEL` | Streamer's lowercase Twitch login |
-| `TWITCH_CHANNEL_CASE_SENSITIVE` | Display name with casing, e.g. `SurferKillerHD` |
+| `TWITCH_CHANNEL_CASE_SENSITIVE` | Display name with casing, e.g. `MyStreamer` |
 | `TWITCH_CHANNEL_USERID` | Streamer's numeric Twitch user ID ([lookup tool](https://www.streamweasels.com/tools/convert-twitch-username-to-user-id/)) |
 | `TWITCH_BOT_USERNAME` | Bot account's lowercase login |
 | `TWITCH_BOT_USERID` | Bot account's numeric user ID |
@@ -213,10 +212,6 @@ Add `http://localhost:3000` as an OAuth Redirect URL in your Twitch app settings
 
 Leave these blank to run Kick in listen-only mode. See [Kick chat setup](#kick-chat-setup) for the full walkthrough.
 
-### Channel point rewards
-
-Channel point rewards are configured from the **dashboard** (`/dashboard`), not `.env`. Each reward maps a Twitch reward UUID to an action (Song Request, Timeout, Wide Cam, or Mute Mic). If you had reward UUIDs in `.env` from an older setup, they are migrated automatically on the first boot.
-
 ### Discord
 
 | Variable | Description |
@@ -245,12 +240,6 @@ Channel point rewards are configured from the **dashboard** (`/dashboard`), not 
 | `WEB_PUBLIC_URL` | Public base URL if behind a tunnel (e.g. `https://bot.yourdomain.com`). Makes `!commands` and `!leaderboard` post clickable links in chat. No trailing slash. |
 | `WEB_PUBLIC_PAGES` | `true` (default) or `false` to turn off all public pages |
 | `CHAT_HOST` | Hostname or IP of the machine running the bot (default `localhost`). Only used by the Electron chat client — set this when the bot runs on a different machine, e.g. `192.168.1.50`. |
-
-### Riot Games (optional)
-
-| Variable | Description |
-|---|---|
-| `RIOT_API_KEY` | Riot Games API key for `!rank` and the Discord `/rank` command. Get one at [developer.riotgames.com](https://developer.riotgames.com). A **Development** key expires every 24 hours. A **Personal** key (register a product) lasts indefinitely. Leave unset to disable the rank commands. |
 
 ---
 
@@ -285,7 +274,7 @@ Tokens are saved to `src/config/tokens/twitch-user-tokens.json` (gitignored). Yo
    ```bash
    node src/integrations/discord/register-commands.js
    ```
-   Re-run whenever you change definitions. Current commands: `/ping`, `/coinflip`, `/say`, `/rank`.
+   Re-run whenever you change definitions. Current commands: `/ping`, `/coinflip`, `/say`.
 
 ---
 
@@ -348,7 +337,6 @@ The bot expects these source names in your scenes (if they don't exist, the feat
 
 | Source | Type | What it does |
 |---|---|---|
-| `WitherText` | Text (GDI+) | `!wither` timeout animation |
 | `MicTimer` | Text (GDI+) | Mute countdown overlay |
 | `!srDisabled` | Text (GDI+) | Shown when song requests are off |
 | `Mic/Aux` | Audio input | Muted by the mute rewards |
@@ -402,7 +390,7 @@ Disable all public pages with `WEB_PUBLIC_PAGES=false`.
 
 | Page | Does |
 |---|---|
-| `/dashboard` | Toggle modules + edit settings, enable/disable built-in commands, CRUD custom commands, rename currency, adjust balances, set sound volume, manage chat timers, configure channel point rewards, configure the `!time` message and timezone |
+| `/dashboard` | Toggle modules + edit settings, enable/disable built-in commands, CRUD custom commands, rename currency, adjust balances, set sound volume, manage chat timers, configure the `!time` message and timezone |
 | `/player` | Now playing, queue, skip/pause/volume, clear queue, toggle requests, set backup playlist, queue a song |
 | `/chat` | Unified Twitch + Kick chat viewer with platform badges, emotes, moderation buttons, and the ability to send messages as the bot. "Pop out" button opens `/chatpop`. |
 | `/chatpop` | Standalone chat page — same features as `/chat` but designed to be used as a pop-out window or installed as a desktop app (see [Chat client](#chat-client-desktop-window)) |
@@ -581,12 +569,12 @@ Recurring chat messages. Editable from the dashboard or by hand (picked up live,
 ```json
 [
   {
-    "name": "Wither",
+    "name": "Raffle",
     "enabled": true,
-    "onlineIntervalMinutes": 10,
+    "onlineIntervalMinutes": 15,
     "offlineIntervalMinutes": 30,
-    "chatLinesRequired": 10,
-    "messages": ["You can timeout people — type !wither [username]"]
+    "chatLinesRequired": 20,
+    "messages": ["Want to win FREE STACKS?! Tell the streamer to do a raffle!"]
   }
 ]
 ```
@@ -617,20 +605,9 @@ The `/commands` page is the authoritative, always-current list of every command.
 Commands fall into three tiers:
 
 - **Built-in** — shipped with the bot, toggled on/off from the dashboard. Defined in `src/integrations/twitch/twitchCommands.js`.
-- **Custom Built-in** — channel-specific commands (`!cannon`, `!rank`, `!wither`) that are marked separately in the dashboard so a public build can drop them without touching anything else. They toggle on/off like any built-in command.
 - **Custom** — user-created via `!addcommand` or the dashboard. Stored in `data/customCommands.json`.
 
-Several commands that were originally built-in (like `!discord`, `!kick`, `!games`, `!penta`, `!trihard`, `!sick`) have been moved to **custom commands**. On first run, the bot seeds them into `data/customCommands.json` where you can edit their responses from the dashboard or via `!changecommand` in chat.
-
-### League of Legends rank (`!rank`)
-
-Requires `RIOT_API_KEY` in `.env`. Streamer accounts are hardcoded in `src/integrations/riot/riotAPI.js` — edit the `ACCOUNTS` array to add or remove accounts.
-
-- `!rank` — shows all streamer accounts with rank, LP, and win rate
-- `!rank Name#Tag` — looks up any player's rank
-- `/rank` (Discord) — same, with an optional `username` parameter
-
-Output format: `Name#Tag -> Diamond III (59 LP) - 52% WR (10W/9L)`
+Several commands that were originally built-in (like `!discord`, `!kick`, `!games`) have been moved to **custom commands**. On first run, the bot seeds them into `data/customCommands.json` where you can edit their responses from the dashboard or via `!changecommand` in chat.
 
 ### OBS source names
 
@@ -642,10 +619,6 @@ Edit `src/integrations/discord/register-commands.js`, then re-run:
 ```bash
 node src/integrations/discord/register-commands.js
 ```
-
-### Channel point rewards
-
-Reward mappings are managed from the dashboard. Each entry pairs a Twitch reward UUID with one of the built-in actions (Song Request, Timeout, Wide Cam, Mute Mic). These are marked as "custom built" in the dashboard — they are channel-specific and not part of the public build. To add new action types, edit `src/integrations/twitch/twitchRewards.js` and `src/integrations/twitch/rewardStore.js`.
 
 ---
 
@@ -661,7 +634,6 @@ Reward mappings are managed from the dashboard. Each entry pairs a Twitch reward
 | Bot starts and immediately exits | Almost always an env validation error. Read the first lines of output. |
 | Go-live announcement never fires | Polls every 60 seconds. Check that `TWITCH_CHANNEL_USERID` is correct. |
 | Player `.exe` won't play videos | Rebuild: `rm -rf player/node_modules player/dist && cd player && npm install && npm run build` |
-| `!rank` returns 401 errors | Your Riot API key is expired or invalid. Development keys expire every 24 hours — regenerate at [developer.riotgames.com](https://developer.riotgames.com), or register a product for a persistent key. |
 | Kick chat is empty but Twitch works | No error is printed for this. See [Kick chat has gone silent](#kick-chat-has-gone-silent). |
 
 ### Kick chat has gone silent

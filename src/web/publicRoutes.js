@@ -13,7 +13,6 @@ const points = require('../integrations/points/pointsStore')
 const modules = require('../integrations/points/modules')
 const customCommands = require('../integrations/twitch/customCommands')
 const commandToggles = require('../integrations/twitch/commandToggles')
-const cannonStacks = require('../integrations/twitch/cannonStacks')
 const sounds = require('../integrations/overlay/sounds')
 const emotes = require('../integrations/overlay/emotes')
 const bus = require('../integrations/overlay/bus')
@@ -267,7 +266,6 @@ function statsBody() {
     ['Custom commands', customCount],
     [`${currency} in circulation`, points.format(circulating)],
     ['Chatters with a balance', all.length],
-    ['Cannon stacks', cannonStacks.getStacks().toLocaleString('en-US')],
     ['Overlays connected', bus.clientCount()]
   ].map(([label, value]) =>
     `<div class="tile"><div class="n">${esc(value)}</div><div class="l">${esc(label)}</div></div>`
@@ -317,9 +315,9 @@ function createPublicRouter({ admin = () => false } = {}) {
 
   router.get('/', (req, res) => {
     res.send(render(req, {
-      title: 'SurferStalker',
-      heading: 'SurferStalker',
-      sub: 'Twitch bot for SurferKiller. Pick a page.',
+      title: 'StreamerStalker',
+      heading: 'StreamerStalker',
+      sub: 'A Twitch & Kick bot. Pick a page.',
       body: landingBody()
     }))
   })
@@ -328,7 +326,7 @@ function createPublicRouter({ admin = () => false } = {}) {
 
   router.get('/commands', (req, res) => {
     res.send(render(req, {
-      title: 'Commands · SurferStalker',
+      title: 'Commands · StreamerStalker',
       active: '/commands',
       heading: 'Commands',
       sub: 'Type these in Twitch or Kick chat. Platform icons show where each command works.',
@@ -339,7 +337,7 @@ function createPublicRouter({ admin = () => false } = {}) {
   router.get('/leaderboard', (req, res) => {
     const isAdmin = admin(req)
     res.send(render(req, {
-      title: 'Leaderboard · SurferStalker',
+      title: 'Leaderboard · StreamerStalker',
       active: '/leaderboard',
       heading: 'Leaderboard',
       sub: isAdmin
@@ -352,7 +350,7 @@ function createPublicRouter({ admin = () => false } = {}) {
 
   router.get('/sounds', (req, res) => {
     res.send(render(req, {
-      title: 'Sounds · SurferStalker',
+      title: 'Sounds · StreamerStalker',
       active: '/sounds',
       heading: 'Sounds',
       sub: 'Each of these works as its own chat command.',
@@ -363,7 +361,7 @@ function createPublicRouter({ admin = () => false } = {}) {
 
   router.get('/stats', (req, res) => {
     res.send(render(req, {
-      title: 'Stats · SurferStalker',
+      title: 'Stats · StreamerStalker',
       active: '/stats',
       heading: 'Stats',
       sub: 'Live numbers from the running bot.',
@@ -393,7 +391,6 @@ function createPublicRouter({ admin = () => false } = {}) {
       currency: points.getCurrencyName(),
       circulating: all.reduce((sum, e) => sum + e.amount, 0),
       chattersWithBalance: all.length,
-      cannonStacks: cannonStacks.getStacks(),
       overlaysConnected: bus.clientCount(),
       modules: modules.list(),
       disabledCommands: commandToggles.list()

@@ -3,7 +3,7 @@ const path = require('path')
 const fs = require('fs')
 const { WebSocketServer } = require('ws')
 
-app.setName('SurferStalker Player')
+app.setName('StreamerStalker Player')
 
 const WS_PORT = 9001
 const SIDEBAR_WIDTH = 320
@@ -126,7 +126,7 @@ function createWindow() {
     height: WINDOW_HEIGHT,
     minWidth: 800,
     minHeight: 500,
-    title: 'SurferStalker Player',
+    title: 'StreamerStalker Player',
     icon: path.join(__dirname, 'assets', 'icon.png'),
     backgroundColor: '#0e0e10',
     webPreferences: {
@@ -958,7 +958,7 @@ ipcMain.handle('manual-sr', async (_e, input) => {
   return { ok: true, title: title || url, position }
 })
 
-// ── WebSocket server (SurferStalker bot connects here) ────────────────────────
+// ── WebSocket server (StreamerStalker bot connects here) ────────────────────────
 
 function startWebSocketServer() {
   const wss = new WebSocketServer({ port: WS_PORT })
@@ -972,7 +972,7 @@ function startWebSocketServer() {
     botSocket = ws
     broadcast()
     pushStatusToBot()
-    console.log('[PLAYER] SurferStalker bot connected')
+    console.log('[PLAYER] StreamerStalker bot connected')
 
     ws.on('message', (raw) => {
       try {
@@ -1022,7 +1022,7 @@ function startWebSocketServer() {
       botConnected = false
       botSocket = null
       broadcast()
-      console.log('[PLAYER] SurferStalker bot disconnected')
+      console.log('[PLAYER] StreamerStalker bot disconnected')
     })
 
     ws.on('error', (err) => {
@@ -1112,7 +1112,7 @@ async function searchYouTube(query) {
 
 app.whenReady().then(() => {
   installLogCapture()
-  console.log(`[PLAYER] SurferStalker Player v${app.getVersion()} starting (Electron ${process.versions.electron})`)
+  console.log(`[PLAYER] StreamerStalker Player v${app.getVersion()} starting (Electron ${process.versions.electron})`)
   loadSettings()
   createWindow()
   startWebSocketServer()

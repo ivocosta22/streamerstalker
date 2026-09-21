@@ -7,7 +7,6 @@
  * - Chat interaction commands
  * - Twitch moderation commands
  * - OBS interaction commands
- * - Channel point timeout command
  *
  * All commands operate using injected context.
  */
@@ -17,8 +16,6 @@ const { getToken, getUser, getUserCategory, getChannelInformation, sendChatAnnou
 const songRequestClient = require('../player/songRequestClient')
 const customCommands = require('./customCommands')
 const commandToggles = require('./commandToggles')
-const cannonStacks = require('./cannonStacks')
-const { getAllRanks, lookupRank } = require('../riot/riotAPI')
 const points = require('../points/pointsStore')
 const modules = require('../points/modules')
 const slots = require('../points/slots')
@@ -28,8 +25,6 @@ const raffle = require('../points/raffle')
 const overlayActions = require('../overlay/actions')
 const overlaySounds = require('../overlay/sounds')
 const settings = require('../../config/settings')
-
-const WITHER_COOLDOWN_MS = 300_000
 
 /**
  * Builds the standard shoutout chat message for a Twitch user.
@@ -43,39 +38,6 @@ async function buildShoutoutMessage(username) {
   const uname = username.replace('@', '').toLowerCase()
   const category = await getUserCategory(uname)
   return `Check out ${uname} at https://twitch.tv/${uname}, they are playing ${category || 'something cool'}!`
-}
-
-/**
- * Calculates stacking timeout duration and updates botState.
- *
- * @param {object} botState
- * @param {string} uname
- * @param {number} baseDuration seconds
- * @returns {number}
- */
-function calculateTimeoutDuration(botState, uname, baseDuration) {
-
-  if (!botState.timeouts) botState.timeouts = {}
-
-  const now = Math.floor(Date.now() / 1000)
-
-  const userData = botState.timeouts[uname]
-
-  let timeoutDuration = baseDuration
-
-  if (userData) {
-    timeoutDuration =
-      (now - userData.timestamp > userData.duration)
-        ? baseDuration
-        : userData.duration + baseDuration
-  }
-
-  botState.timeouts[uname] = {
-    duration: timeoutDuration,
-    timestamp: now
-  }
-
-  return timeoutDuration
 }
 
 /**
@@ -106,7 +68,6 @@ function createCommands(context) {
   // ============================================================
   botState.startTime = botState.startTime || Date.now()
   botState.commandCaller = botState.commandCaller || null
-  botState.timeouts = botState.timeouts || {}
 
   // ============================================================
   // Simple Commands
@@ -118,7 +79,7 @@ function createCommands(context) {
     return `Current playlist: ${url}`
   }
 
-  const videosCommand = () => `You can insert videos here for Surfer to watch Sprite https://docs.google.com/document/d/1bxSoH8t5fFlTETAFe0xPk24fAA1hsHyH_-U0BrY1aBU/edit`
+  const videosCommand = () => 'No video submission link is configured.'
 
   // !playsound <name> plays; bare !playsound falls through to the list, as do
   // the !soundlist aliases.
@@ -197,70 +158,6 @@ function createCommands(context) {
       : `Could not fetch the current stream title.`
   }
 
-  const witherCommand = async (username) => {
-    if (!username) return `@${botState.commandCaller} usage: !wither <user>`
-
-    if (userCooldown.has(botState.commandCaller)) {
-      logColor('cyan', `[TWITCH] 🤡 ${botState.commandCaller} is on cooldown for wither.`)
-      return `${botState.commandCaller} is on cooldown for wither... 🤡`
-    }
-
-    const uname = username.replace('@', '').toLowerCase()
-    const timeoutDuration = calculateTimeoutDuration(botState, uname, 60)
-    const randomNumber = Math.floor(Math.random() * 11)
-
-    // 50/50 dodge chance
-    if (randomNumber >= 5) {
-      logColor('cyan', `[TWITCH] 🏃‍ ${uname} dodged the wither cast by ${botState.commandCaller}!`)
-      if (botState.commandCaller !== twitchChannelCaseSensitive) {
-        userCooldown.add(botState.commandCaller)
-        setTimeout(() => userCooldown.delete(botState.commandCaller), WITHER_COOLDOWN_MS)
-      }
-      return `${uname} dodged the wither cast by ${botState.commandCaller}! 🤡`
-    }
-
-    try {
-      const token = await getToken('user')
-      const userID = await getUser(uname)
-
-      if (!userID) {
-        logColor('red', `[TWITCH] ❌ Could not find user ID for ${uname}, skipping wither`)
-        return ''
-      }
-
-      const res = await superfetch
-      .post(`${twitch.APIEndpoint}/moderation/bans`)
-      .query({
-        broadcaster_id: twitchChannelUserID,
-        moderator_id: twitchBotUserID
-      })
-      .set('Authorization', `Bearer ${token}`)
-      .set('Client-Id', twitchBotAPIClientID)
-      .set('Content-Type', 'application/json')
-      .send(JSON.stringify({
-        data: {
-          user_id: String(userID),
-          duration: timeoutDuration,
-          reason: `You have been withered by ${botState.commandCaller} in chat.`
-        }
-      }))
-
-      if (res.status === 200) {
-        logColor('cyan', `[TWITCH] 💀 ${uname} was withered by ${botState.commandCaller}.`)
-        const displayText = `${uname} was withered by ${botState.commandCaller}.`
-        if (obsController?.setWitherText) await obsController.setWitherText(displayText)
-        if (obsController?.slideWitherTextInAllScenes) await obsController.slideWitherTextInAllScenes()
-        return ''
-      }
-
-      logColor('red', `[TWITCH] ❌ Error withering ${uname}. Status: ${res.status} ${res.statusText}`)
-      return ''
-
-    } catch (error) {
-      logColor('red', `[TWITCH] ❌ Error withering ${uname}: ${error.message}`)
-      return ''
-    }
-  }
   let skipCooldownUntil = 0
   const SKIP_COOLDOWN_MS = 5 * 60 * 1000
 
@@ -428,14 +325,6 @@ function createCommands(context) {
   }
 
   // ============================================================
-  // !cannon — Nasus stacks counter
-  // ============================================================
-  const cannonCommand = () => {
-    const stacks = cannonStacks.removeStacks(10)
-    return `Surfer lagged Kappa and lost a total of ${stacks} stacks LULE`
-  }
-
-  // ============================================================
   // !vanish — self-timeout for 1 second
   // ============================================================
   const vanishCommand = async () => {
@@ -466,20 +355,6 @@ function createCommands(context) {
       logColor('red', `[TWITCH] Vanish failed for ${caller}: ${err.message}`)
     }
     return ''
-  }
-
-  // ============================================================
-  // !rank — League of Legends rank lookup via Riot API
-  // ============================================================
-  const rankCommand = async (...args) => {
-    try {
-      const input = args.join(' ').trim()
-      if (input) return await lookupRank(input)
-      return await getAllRanks()
-    } catch (err) {
-      logColor('red', `[TWITCH] Rank lookup failed: ${err.message}`)
-      return 'Could not fetch rank data right now.'
-    }
   }
 
   // ============================================================
@@ -684,7 +559,6 @@ function createCommands(context) {
   // ============================================================
   const commandList = [
     { name: 'ping', response: pingCommand },
-    { name: 'wither', response: witherCommand },
     { name: 'playlist', response: playlistCommand },
     { name: 'time', response: timeCommand },
     { name: 'videos', response: videosCommand },
@@ -716,9 +590,7 @@ function createCommands(context) {
     { name: 'disablecommand', response: disableCommandCmd },
     { name: 'enablecommand', response: enableCommandCmd },
     { name: 'disabledcommands', response: disabledCommandsCmd },
-    { name: 'cannon', response: cannonCommand },
     { name: 'vanish', response: vanishCommand },
-    { name: 'rank', response: rankCommand },
     { name: 'points', response: pointsCommand },
     { name: 'balance', response: pointsCommand },
     { name: 'leaderboard', response: leaderboardCommand },
@@ -749,77 +621,7 @@ function createCommands(context) {
 }
 
 
-/**
- * Times out a user via Twitch moderation API.
- * Used by channel point rewards.
- *
- * @param {object} context
- * @param {string} username
- * @returns {Promise<string>}
- */
-const timeoutCommand = async (context, username) => {
-
-  if (!username) return
-
-  if (!context) throw new Error('timeoutCommand requires a context object')
-
-    const {
-      botState,
-      logColor = (...args) => console.log(...args),
-      obsController,
-      twitchChannelUserID,
-      twitchBotUserID,
-      twitchBotAPIClientID
-    } = context
-
-    const uname = username.replace('@', '').toLowerCase()
-    const timeoutDuration = calculateTimeoutDuration(botState, uname, 300)
-
-    try {
-      const token = await getToken('user')
-      const userID = await getUser(uname)
-
-      if (!userID) {
-        logColor('red', `[TWITCH] ❌ Could not find user ID for ${uname}, skipping timeout`)
-        return ''
-      }
-
-      const res = await superfetch
-      .post(`${twitch.APIEndpoint}/moderation/bans`)
-      .query({
-        broadcaster_id: twitchChannelUserID,
-        moderator_id: twitchBotUserID
-      })
-      .set('Authorization', `Bearer ${token}`)
-      .set('Client-Id', twitchBotAPIClientID)
-      .set('Content-Type', 'application/json')
-      .send(JSON.stringify({
-        data: {
-          user_id: String(userID),
-          duration: timeoutDuration,
-          reason: `You have been timed out by ${botState.commandCaller} via channel points reward.`
-        }
-      }))
-
-      if (res.status === 200) {
-        logColor('cyan', `[TWITCH] 💀 ${uname} timed out by ${botState.commandCaller} via channel points.`)
-        const displayText = `${uname} was timed out by ${botState.commandCaller} via channel points.`
-        if (obsController?.setWitherText) await obsController.setWitherText(displayText)
-        if (obsController?.slideWitherTextInAllScenes) await obsController.slideWitherTextInAllScenes()
-        return ''
-      }
-
-      logColor('red', `[TWITCH] ❌ Error timing out ${uname}. Status: ${res.status} ${res.statusText}`)
-      return ''
-
-    } catch (error) {
-      logColor('red', `[TWITCH] ❌ Error timing out ${uname}: ${error.message}`)
-      return ''
-    }
-}
-
 module.exports = Object.freeze({
   createCommands,
-  timeoutCommand,
   buildShoutoutMessage
 })

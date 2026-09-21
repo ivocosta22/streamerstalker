@@ -1,22 +1,12 @@
 [
   {
-    "name": "Wither",
-    "enabled": true,
-    "onlineIntervalMinutes": 10,
-    "offlineIntervalMinutes": 30,
-    "chatLinesRequired": 10,
-    "messages": [
-      "You can timeout people if they're not being nice. Type !wither [username]"
-    ]
-  },
-  {
     "name": "Raffle",
     "enabled": true,
     "onlineIntervalMinutes": 15,
     "offlineIntervalMinutes": 30,
     "chatLinesRequired": 20,
     "messages": [
-      "Want to win FREE STACKS?! Tell Surfer to do a raffle! Surely you'll win Clueless"
+      "Want to win FREE STACKS?! Tell the streamer to do a raffle! Surely you'll win Clueless"
     ]
   },
   {
@@ -27,16 +17,6 @@
     "chatLinesRequired": 20,
     "messages": [
       "Do !gamble, !slots or !duel to get stacks! Stonks"
-    ]
-  },
-  {
-    "name": "SynapseVideos",
-    "enabled": true,
-    "onlineIntervalMinutes": 30,
-    "offlineIntervalMinutes": 30,
-    "chatLinesRequired": 20,
-    "messages": [
-      "Surfer's Pentas in Synapse's channel Sheesh : https://youtu.be/qkZ2sukhVRU?t=266 | https://youtu.be/PStKAXach6Y?t=255 | https://youtu.be/lly9zvmxLF0?t=579 | https://youtu.be/VrwY4r15Ldo?t=435 | https://youtu.be/Qwm2O8OnS0M?t=189"
     ]
   },
   {

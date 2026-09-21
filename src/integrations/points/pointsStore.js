@@ -44,7 +44,7 @@ function setCurrencyName(name) {
 
 /**
  * Command alias derived from the currency name, so renaming the currency
- * renames the balance command with it ("Surfer Bucks" -> "surferbucks").
+ * renames the balance command with it (e.g. "Super Bucks" -> "superbucks").
  * Returns '' when the name has no usable characters, which callers must
  * treat as "no alias" rather than matching an empty command.
  */

@@ -278,12 +278,12 @@ ${head}
 <body>
 <header>
   <div class="bar">
-    <a class="brand" href="/">Surfer<span>Stalker</span></a>
+    <a class="brand" href="/">Streamer<span>Stalker</span></a>
     <nav>${nav}</nav>
   </div>
 </header>
 <main>${header}${body}</main>
-<footer>SurferStalker${admin ? ' &middot; <a href="/logout">Log out</a>' : ''}</footer>
+<footer>StreamerStalker${admin ? ' &middot; <a href="/logout">Log out</a>' : ''}</footer>
 ${script ? `<script>${script}</script>` : ''}
 </body>
 </html>`

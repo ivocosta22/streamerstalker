@@ -11,8 +11,6 @@
 
 /** @typedef {'all'|'mods'|'broadcaster'} Perm */
 
-const CUSTOM_BUILT = 'Custom Built-in'
-
 const CATEGORIES = [
   'Points & Economy',
   'Games',
@@ -20,15 +18,12 @@ const CATEGORIES = [
   'Music',
   'Stream Info',
   'Fun',
-  CUSTOM_BUILT,
   'Command Management',
   'Admin'
 ]
 
 /** Shown under the heading on the commands page. */
-const CATEGORY_NOTES = {
-  [CUSTOM_BUILT]: 'Built for this channel specifically rather than shipped with the bot. They switch on and off exactly like any other built-in command.'
-}
+const CATEGORY_NOTES = {}
 
 /** @type {Array<{name:string, aliases?:string[], cat:string, usage:string, desc:string, perm:Perm}>} */
 const DOCS = [
@@ -258,29 +253,6 @@ const DOCS = [
     desc: 'Announces that you are back.',
     perm: 'all'
   },
-  // ---- Custom Built-in ----
-  // Written for this channel rather than shipped with the bot. Kept in their own
-  // category so a public build can drop them without touching anything else.
-  {
-    name: 'cannon', cat: CUSTOM_BUILT,
-    usage: '!cannon',
-    desc: 'Docks ten cannon stacks and reports the running total, which is deeply negative. Typing "-10" on its own does the same thing.',
-    perm: 'all'
-  },
-  {
-    name: 'rank', cat: CUSTOM_BUILT,
-    usage: '!rank [Name#Tag]',
-    desc: 'League of Legends solo queue rank. Shows streamer accounts if no name given.',
-    perm: 'all'
-  },
-  {
-    name: 'wither', cat: CUSTOM_BUILT,
-    usage: '!wither <user>',
-    desc: 'Times someone out for a minute, stacking longer each time you get them. Five minute cooldown per person.',
-    perm: 'all',
-    platform: 'twitch'
-  },
-
   // ---- Command Management ----
   {
     name: 'addcommand', cat: 'Command Management',
@@ -382,17 +354,7 @@ function byCategory() {
     .filter(group => group.entries.length > 0)
 }
 
-/** Channel-specific command names, aliases included. */
-function customBuiltNames() {
-  const names = []
-  for (const entry of DOCS) {
-    if (entry.cat !== CUSTOM_BUILT) continue
-    names.push(entry.name, ...(entry.aliases || []))
-  }
-  return names
-}
-
 module.exports = {
-  DOCS, PASSIVE, CATEGORIES, CATEGORY_NOTES, CUSTOM_BUILT,
-  documentedNames, byCategory, customBuiltNames
+  DOCS, PASSIVE, CATEGORIES, CATEGORY_NOTES,
+  documentedNames, byCategory
 }

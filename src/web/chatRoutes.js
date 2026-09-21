@@ -12,7 +12,7 @@ const KICK_ICON = '<svg style="width:18px;height:18px;vertical-align:middle;marg
 function chatPage(page, auth) {
   return (req, res) => {
     res.send(page({
-      title: 'Chat · SurferStalker',
+      title: 'Chat · StreamerStalker',
       active: '/chat',
       heading: 'Chat',
       sub: `Chat for ${esc(twitch.channelCaseSensitive)}. Messages you send appear as the bot.`,
@@ -571,7 +571,7 @@ const CHATPOP_HTML = `<!DOCTYPE html>
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>SurferStalker Chat</title>
+<title>StreamerStalker Chat</title>
 <link rel="manifest" href="/chatpop/manifest.json">
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -620,7 +620,7 @@ const CHATPOP_HTML = `<!DOCTYPE html>
 </head>
 <body>
 <div class="top-bar">
-  Surfer<span>Stalker</span> Chat
+  Streamer<span>Stalker</span> Chat
   <div class="dot" id="dot"></div>
 </div>
 <div id="chat"></div>
@@ -787,7 +787,7 @@ function chatPopPage(req, res) {
 
 function chatPopManifest(_req, res) {
   res.json({
-    name: 'SurferStalker Chat',
+    name: 'StreamerStalker Chat',
     short_name: 'SS Chat',
     start_url: '/chatpop',
     display: 'standalone',

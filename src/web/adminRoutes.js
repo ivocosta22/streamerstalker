@@ -12,7 +12,7 @@
 const express = require('express')
 const { page, esc } = require('./layout')
 const auth = require('./auth')
-const { documentedNames, customBuiltNames } = require('./commandDocs')
+const { documentedNames } = require('./commandDocs')
 const { getHistory, subscribe, logColor } = require('../utils/logger')
 const points = require('../integrations/points/pointsStore')
 const modules = require('../integrations/points/modules')
@@ -23,11 +23,9 @@ const overlayActions = require('../integrations/overlay/actions')
 const player = require('../integrations/player/songRequestClient')
 const chatTimers = require('../integrations/twitch/chatTimers')
 const settings = require('../config/settings')
-const rewardStore = require('../integrations/twitch/rewardStore')
 const { streamer, twitch } = require('../config/env')
 
 const BUILT_IN = documentedNames().sort()
-const CUSTOM_BUILT_NAMES = new Set(customBuiltNames())
 
 function wantsJson(req, res) {
   if ((req.headers['content-type'] || '').includes('application/json')) return true
@@ -192,14 +190,6 @@ function renderCommands() {
       if (cmd.protected) { btn.disabled = true; btn.textContent = 'Locked'; }
 
       var nameCell = [h('span', { class: 'cmd', text: '!' + cmd.name })];
-      if (cmd.customBuilt) {
-        nameCell.push(h('span', {
-          class: 'chip',
-          text: 'custom built',
-          title: 'Built for this channel, not part of the public bot',
-          style: 'margin-left:8px'
-        }));
-      }
 
       tbody.appendChild(h('tr', {}, [
         h('td', {}, nameCell),
@@ -320,48 +310,6 @@ function renderTimers() {
   state.timers.forEach(function (t) { wrap.appendChild(timerCard(t)); });
 }
 
-function renderRewards() {
-  var wrap = document.getElementById('rewards');
-  wrap.textContent = '';
-
-  if (!state.rewards.length) {
-    wrap.appendChild(h('div', { class: 'card' }, [h('div', { class: 'empty', text: 'No channel point rewards configured.' })]));
-    return;
-  }
-
-  state.rewards.forEach(function (rw) {
-    var actionLabel = state.rewardActions[rw.action] ? state.rewardActions[rw.action].label : rw.action;
-    var paramText = '';
-    if (rw.action === 'mute' && rw.params && rw.params.durationMinutes) {
-      paramText = ' (' + rw.params.durationMinutes + ' min)';
-    }
-
-    wrap.appendChild(h('div', { class: 'card', style: 'margin-bottom:8px' }, [
-      h('div', { class: 'row', style: 'justify-content:space-between;align-items:center' }, [
-        h('div', {}, [
-          h('span', { style: 'font-weight:700', text: rw.name }),
-          h('span', { class: 'muted', style: 'margin-left:10px;font-size:13px', text: actionLabel + paramText })
-        ]),
-        h('div', { class: 'row', style: 'gap:6px' }, [
-          h('button', {
-            class: 'danger',
-            text: 'Remove',
-            onclick: function () {
-              if (!confirm('Remove the "' + rw.name + '" reward?')) return;
-              api('DELETE', '/api/admin/rewards/' + encodeURIComponent(rw.rewardId))
-                .then(load).then(function () { toast(rw.name + ' removed'); })
-                .catch(function (e) { toast(e.message, true); });
-            }
-          })
-        ])
-      ]),
-      h('div', { class: 'muted', style: 'font-size:11.5px;margin-top:6px;word-break:break-all' }, [
-        document.createTextNode('ID: ' + rw.rewardId)
-      ])
-    ]));
-  });
-}
-
 function render() {
   document.getElementById('currency').value = state.currency;
   document.getElementById('timeTemplate').value = state.timeTemplate;
@@ -372,7 +320,6 @@ function render() {
   renderCommands();
   renderCustom();
   renderTimers();
-  renderRewards();
 }
 
 document.addEventListener('DOMContentLoaded', function () {
@@ -436,30 +383,6 @@ document.addEventListener('DOMContentLoaded', function () {
       .catch(function (err) { toast(err.message, true); });
   });
 
-  document.getElementById('addReward').addEventListener('submit', function (e) {
-    e.preventDefault();
-    var body = {
-      rewardId: document.getElementById('rwId').value.trim(),
-      name: document.getElementById('rwName').value.trim(),
-      action: document.getElementById('rwAction').value,
-      params: {}
-    };
-    var dur = document.getElementById('rwDuration').value;
-    if (body.action === 'mute' && dur) body.params.durationMinutes = Number(dur);
-    api('POST', '/api/admin/rewards', body)
-      .then(load)
-      .then(function () {
-        document.getElementById('rwId').value = '';
-        document.getElementById('rwName').value = '';
-        toast(body.name + ' reward added');
-      })
-      .catch(function (err) { toast(err.message, true); });
-  });
-
-  document.getElementById('rwAction').addEventListener('change', function () {
-    document.getElementById('rwDurationWrap').style.display =
-      this.value === 'mute' ? '' : 'none';
-  });
 });
 `
 
@@ -468,12 +391,6 @@ document.addEventListener('DOMContentLoaded', function () {
 function timezoneOptions() {
   return [`<option value="">Use .env (${esc(streamer.timezone)})</option>`]
     .concat(settings.availableTimezones().map(z => `<option value="${esc(z)}">${esc(z)}</option>`))
-    .join('')
-}
-
-function rewardActionOptions() {
-  return Object.entries(rewardStore.ACTIONS)
-    .map(([key, val]) => `<option value="${esc(key)}">${esc(val.label)}</option>`)
     .join('')
 }
 
@@ -556,32 +473,6 @@ function dashboardBody() {
       <button id="saveTimers" class="primary">Save timers</button>
     </div>
 
-    <h2>Channel point rewards <span class="chip" style="margin-left:6px;vertical-align:middle">custom built</span></h2>
-    <div class="muted" style="font-size:13px;margin:-6px 0 12px;max-width:70ch">
-      Built for this channel, not part of the public bot. The actions here are wired to
-      this setup specifically.
-    </div>
-    <div id="rewards"></div>
-    <form id="addReward" class="card row" style="gap:10px;align-items:flex-end;margin-top:12px">
-      <div class="field" style="flex:1 1 240px;margin:0">
-        <label for="rwId">Reward UUID</label>
-        <input type="text" id="rwId" placeholder="Paste the reward ID from Twitch" required />
-      </div>
-      <div class="field" style="flex:0 1 160px;margin:0">
-        <label for="rwName">Label</label>
-        <input type="text" id="rwName" placeholder="e.g. Mute 5min" required />
-      </div>
-      <div class="field" style="flex:0 0 150px;margin:0">
-        <label for="rwAction">Action</label>
-        <select id="rwAction">${rewardActionOptions()}</select>
-      </div>
-      <div class="field" style="flex:0 0 110px;margin:0;display:none" id="rwDurationWrap">
-        <label for="rwDuration">Minutes</label>
-        <input type="number" id="rwDuration" min="1" value="5" />
-      </div>
-      <button class="primary" type="submit">Add</button>
-    </form>
-
     <h2>Custom commands</h2>
     <div class="card" style="padding:0;margin-bottom:12px">
       <div class="scroll"><table><tbody id="custom"></tbody></table></div>
@@ -599,10 +490,6 @@ function dashboardBody() {
     </form>
 
     <h2>Built-in commands</h2>
-    <div class="muted" style="font-size:13px;margin:-6px 0 12px;max-width:70ch">
-      Anything tagged <span class="chip">custom built</span> was written for this channel
-      rather than shipped with the bot. It enables and disables like the rest.
-    </div>
     <div class="field" style="max-width:300px">
       <input type="text" id="cmdFilter" placeholder="Filter commands..." />
     </div>
@@ -683,13 +570,13 @@ function createAdminRouter() {
   router.get('/login', (req, res) => {
     if (!auth.isAdminEnabled()) {
       return res.status(404).send(page({
-        title: 'Control panel unavailable · SurferStalker',
+        title: 'Control panel unavailable · StreamerStalker',
         heading: 'Control panel unavailable',
         body: disabledBody()
       }))
     }
     if (auth.isAuthed(req)) return res.redirect('/dashboard')
-    res.send(page({ title: 'Log in · SurferStalker', heading: 'Log in', body: loginBody('') }))
+    res.send(page({ title: 'Log in · StreamerStalker', heading: 'Log in', body: loginBody('') }))
   })
 
   router.post('/login', (req, res) => {
@@ -699,7 +586,7 @@ function createAdminRouter() {
     if (locked > 0) {
       const mins = Math.ceil(locked / 60000)
       return res.status(429).send(page({
-        title: 'Log in · SurferStalker',
+        title: 'Log in · StreamerStalker',
         heading: 'Log in',
         body: loginBody(`Too many attempts. Try again in ${mins} minute${mins === 1 ? '' : 's'}.`)
       }))
@@ -709,7 +596,7 @@ function createAdminRouter() {
       auth.recordFailure(req)
       logColor('yellow', `[SYSTEM] Failed admin login from ${req.ip}`)
       return res.status(401).send(page({
-        title: 'Log in · SurferStalker',
+        title: 'Log in · StreamerStalker',
         heading: 'Log in',
         body: loginBody('Wrong password.')
       }))
@@ -730,7 +617,7 @@ function createAdminRouter() {
 
   router.get('/dashboard', auth.requireAdmin, (_req, res) => {
     res.send(page({
-      title: 'Dashboard · SurferStalker',
+      title: 'Dashboard · StreamerStalker',
       active: '/dashboard',
       heading: 'Dashboard',
       sub: 'Changes apply immediately — no restart needed.',
@@ -742,7 +629,7 @@ function createAdminRouter() {
 
   router.get('/logs', auth.requireAdmin, (_req, res) => {
     res.send(page({
-      title: 'Logs · SurferStalker',
+      title: 'Logs · StreamerStalker',
       active: '/logs',
       heading: 'Logs',
       sub: 'Live tail of everything the bot prints.',
@@ -766,15 +653,12 @@ function createAdminRouter() {
       commands: BUILT_IN.map(name => ({
         name,
         disabled: commandToggles.isDisabled(name),
-        protected: commandToggles.isProtected(name),
-        customBuilt: CUSTOM_BUILT_NAMES.has(name)
+        protected: commandToggles.isProtected(name)
       })),
       custom: Object.entries(customCommands.getAll())
         .map(([name, response]) => ({ name, response }))
         .sort((a, b) => a.name.localeCompare(b.name)),
-      sounds: sounds.list(),
-      rewards: rewardStore.getAll(),
-      rewardActions: rewardStore.ACTIONS
+      sounds: sounds.list()
     })
   })
 
@@ -887,35 +771,6 @@ function createAdminRouter() {
     if (!result.ok) return res.status(400).json({ error: result.error })
     logColor('green', `[SYSTEM] ${result.timers.length} chat timer(s) saved from the dashboard`)
     res.json({ timers: result.timers })
-  })
-
-  // ---- rewards ----
-
-  router.post('/api/admin/rewards', auth.requireAdmin, (req, res) => {
-    if (!wantsJson(req, res)) return
-    const rewardId = String(req.body?.rewardId ?? '').trim()
-    const name = String(req.body?.name ?? '').trim()
-    const action = String(req.body?.action ?? '')
-    if (!rewardId) return res.status(400).json({ error: 'reward ID is required' })
-    if (!name) return res.status(400).json({ error: 'a label is required' })
-
-    const params = {}
-    if (action === 'mute') {
-      const dur = Math.floor(Number(req.body?.params?.durationMinutes))
-      params.durationMinutes = (Number.isFinite(dur) && dur > 0) ? dur : 5
-    }
-
-    const result = rewardStore.add({ rewardId, name, action, params })
-    if (!result.ok) return res.status(409).json({ error: result.error })
-    logColor('green', `[SYSTEM] Channel point reward "${name}" added from the dashboard`)
-    res.json({ ok: true })
-  })
-
-  router.delete('/api/admin/rewards/:id', auth.requireAdmin, (req, res) => {
-    const id = String(req.params.id || '')
-    if (!rewardStore.remove(id)) return res.status(404).json({ error: 'reward not found' })
-    logColor('green', `[SYSTEM] Channel point reward removed from the dashboard`)
-    res.json({ removed: true })
   })
 
   router.delete('/api/admin/points/:user', auth.requireAdmin, (req, res) => {
