@@ -86,7 +86,10 @@ module.exports = Object.freeze({
   // often has to be supplied by hand. See .env.example for how to find it.
   kick: Object.freeze({
     enabled: optionalEnvBool('KICK_CHAT_ENABLED', true),
-    chatroomId: process.env.KICK_CHATROOM_ID || null
+    chatroomId: process.env.KICK_CHATROOM_ID || null,
+    clientId: process.env.KICK_CLIENT_ID || null,
+    clientSecret: process.env.KICK_CLIENT_SECRET || null,
+    broadcasterUserId: process.env.KICK_BROADCASTER_USER_ID || null
   }),
 
   twitchChannelPointsRewards: (function () {

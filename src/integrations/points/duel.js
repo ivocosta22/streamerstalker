@@ -12,29 +12,31 @@ function normalize(name) {
 function challenge(challenger, targetRaw, amountInput) {
   const cfg = modules.get('duel')
   const currency = points.getCurrencyName()
+  const challengerName = points.displayName(challenger)
 
-  if (!targetRaw || !amountInput) return `@${challenger} usage: !duel <user> <amount>`
+  if (!targetRaw || !amountInput) return `@${challengerName} usage: !duel <user> <amount>`
 
   const target = String(targetRaw).replace(/^@/, '')
+  const targetName = points.displayName(target)
   const targetKey = normalize(target)
   const challengerKey = normalize(challenger)
 
-  if (targetKey === challengerKey) return `@${challenger} you can't duel yourself.`
-  if (pending.has(targetKey)) return `@${challenger} ${target} already has a pending duel.`
+  if (targetKey === challengerKey) return `@${challengerName} you can't duel yourself.`
+  if (pending.has(targetKey)) return `@${challengerName} ${targetName} already has a pending duel.`
 
   const balance = points.getBalance(challenger)
   const amount = points.parseAmount(amountInput, balance)
 
-  if (amount === null) return `@${challenger} "${amountInput}" isn't a valid amount.`
-  if (amount < cfg.minAmount) return `@${challenger} the minimum duel is ${points.format(cfg.minAmount)} ${currency}.`
-  if (amount > balance) return `@${challenger} you only have ${points.format(balance)} ${currency}.`
-  if (points.getBalance(target) < amount) return `@${challenger} ${target} doesn't have ${points.format(amount)} ${currency}.`
+  if (amount === null) return `@${challengerName} "${amountInput}" isn't a valid amount.`
+  if (amount < cfg.minAmount) return `@${challengerName} the minimum duel is ${points.format(cfg.minAmount)} ${currency}.`
+  if (amount > balance) return `@${challengerName} you only have ${points.format(balance)} ${currency}.`
+  if (points.getBalance(target) < amount) return `@${challengerName} ${targetName} doesn't have ${points.format(amount)} ${currency}.`
 
   const timer = setTimeout(() => pending.delete(targetKey), cfg.expireSeconds * 1000)
   if (timer.unref) timer.unref()
   pending.set(targetKey, { challenger, amount, timer })
 
-  return `@${target} you have been challenged to a duel by @${challenger} for ${points.format(amount)} ${currency}! Type !accept or !deny (${cfg.expireSeconds}s)`
+  return `@${targetName} you have been challenged to a duel by @${challengerName} for ${points.format(amount)} ${currency}! Type !accept or !deny (${cfg.expireSeconds}s)`
 }
 
 function accept(target) {
@@ -47,13 +49,14 @@ function accept(target) {
 
   const currency = points.getCurrencyName()
   const { challenger, amount } = duel
+  const targetName = points.displayName(target)
+  const challengerName = points.displayName(challenger)
 
-  // Balances can move between challenge and accept, so re-verify both sides.
   if (points.getBalance(challenger) < amount) {
-    return `@${target} the duel is off — @${challenger} can no longer cover ${points.format(amount)} ${currency}.`
+    return `@${targetName} the duel is off — @${challengerName} can no longer cover ${points.format(amount)} ${currency}.`
   }
   if (points.getBalance(target) < amount) {
-    return `@${target} you no longer have ${points.format(amount)} ${currency}.`
+    return `@${targetName} you no longer have ${points.format(amount)} ${currency}.`
   }
 
   const challengerWins = Math.random() < 0.5
@@ -63,7 +66,7 @@ function accept(target) {
   points.addPoints(winner, amount)
   points.removePoints(loser, amount)
 
-  return `@${winner} won the duel against @${loser} and took ${points.format(amount)} ${currency}! (Balance: ${points.format(points.getBalance(winner))})`
+  return `@${points.displayName(winner)} won the duel against @${points.displayName(loser)} and took ${points.format(amount)} ${currency}! (Balance: ${points.format(points.getBalance(winner))})`
 }
 
 function deny(target) {
@@ -73,7 +76,7 @@ function deny(target) {
 
   clearTimeout(duel.timer)
   pending.delete(targetKey)
-  return `@${target} declined the duel from @${duel.challenger}.`
+  return `@${points.displayName(target)} declined the duel from @${points.displayName(duel.challenger)}.`
 }
 
 module.exports = { challenge, accept, deny }

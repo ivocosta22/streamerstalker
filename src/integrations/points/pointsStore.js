@@ -27,6 +27,10 @@ function key(user) {
   return String(user || '').replace(/^@/, '').toLowerCase()
 }
 
+function cleanName(user) {
+  return String(user || '').replace(/^@/, '').replace(/^kick:/i, '')
+}
+
 function getCurrencyName() {
   return loadData().currencyName
 }
@@ -58,7 +62,8 @@ function setBalance(user, amount) {
   const data = loadData()
   const value = Math.max(0, Math.floor(Number(amount) || 0))
   data.balances[k] = value
-  if (user && user !== k) data.names[k] = String(user).replace(/^@/, '')
+  const display = cleanName(user)
+  if (display && display.toLowerCase() !== k) data.names[k] = display
   persist(data)
   return value
 }
@@ -95,23 +100,25 @@ function allBalances() {
   const data = loadData()
   return Object.entries(data.balances)
     .sort((a, b) => b[1] - a[1])
-    .map(([k, amount]) => ({ key: k, name: data.names[k] || k, amount }))
+    .map(([k, amount]) => ({ key: k, name: data.names[k] || cleanName(k), amount, platform: k.startsWith('kick:') ? 'kick' : 'twitch' }))
 }
 
 // Records a display name without touching the balance, so the leaderboard can
 // show proper casing for users who have never earned anything yet.
 function rememberName(user) {
   const k = key(user)
-  if (!k || !user || user === k) return
+  if (!k) return
+  const display = cleanName(user)
+  if (!display || display === k) return
   const data = loadData()
-  if (data.names[k] === user) return
-  data.names[k] = String(user).replace(/^@/, '')
+  if (data.names[k] === display) return
+  data.names[k] = display
   persist(data)
 }
 
 function displayName(user) {
   const k = key(user)
-  return loadData().names[k] || k
+  return loadData().names[k] || cleanName(user) || k
 }
 
 function leaderboard(limit = 5) {
@@ -120,7 +127,7 @@ function leaderboard(limit = 5) {
     .filter(([k, amount]) => amount > 0 && !HIDDEN_FROM_LEADERBOARD.has(k))
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
-    .map(([k, amount]) => ({ key: k, name: data.names[k] || k, amount }))
+    .map(([k, amount]) => ({ key: k, name: data.names[k] || cleanName(k), amount, platform: k.startsWith('kick:') ? 'kick' : 'twitch' }))
 }
 
 /**

@@ -23,6 +23,7 @@ function push(context, message, platform = 'twitch') {
     subscriber: !!context.subscriber,
     vip: !!context.vip,
     broadcaster: !!context.badges?.broadcaster,
+    userId: context['user-id'] || null,
     message,
     emotes: context.emotes || null,
     timestamp: Date.now()
@@ -42,6 +43,7 @@ function pushEntry(entry) {
     subscriber: !!entry.subscriber,
     vip: !!entry.vip,
     broadcaster: !!entry.broadcaster,
+    userId: entry.userId || null,
     message: entry.message || '',
     emotes: null,
     parsedMessage: entry.parsedMessage || null,
@@ -78,8 +80,10 @@ function subscribe(fn) {
 }
 
 let _say = null
+let _kickSay = null
 
 function setSay(fn) { _say = fn }
+function setKickSay(fn) { _kickSay = fn }
 
 function say(msg) {
   if (!_say) return false
@@ -87,4 +91,10 @@ function say(msg) {
   return true
 }
 
-module.exports = { push, pushEntry, pushSystem, getHistory, subscribe, setSay, say }
+function kickSay(msg) {
+  if (!_kickSay) return false
+  _kickSay(msg)
+  return true
+}
+
+module.exports = { push, pushEntry, pushSystem, getHistory, subscribe, setSay, say, setKickSay, kickSay }

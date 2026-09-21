@@ -38,6 +38,7 @@ let socket = null
 let reconnectTimer = null
 let attempt = 0
 let stopped = false
+let _onMessage = null
 
 function slugFromUrl(url) {
   const match = String(url || '').match(/kick\.com\/([A-Za-z0-9_-]+)/)
@@ -225,20 +226,31 @@ function handleChatMessage(payload) {
   const types = new Set(badges.map((b) => String(b?.type || '')))
   const content = String(payload?.content ?? '')
 
+  const user = sender.username || 'unknown'
+  const isMod = types.has('moderator')
+  const isBroadcaster = types.has('broadcaster')
+
   chatBus.pushEntry({
     id: payload?.id,
     platform: 'kick',
-    user: sender.username || 'unknown',
+    user,
+    userId: String(sender.id || ''),
     color: identity.color || null,
     message: content,
     parsedMessage: parseKickMessage(content),
     resolvedBadges: mapBadges(badges, identity.badges_v2),
-    mod: types.has('moderator'),
+    mod: isMod,
     subscriber: types.has('subscriber'),
     vip: types.has('vip'),
-    broadcaster: types.has('broadcaster'),
+    broadcaster: isBroadcaster,
     timestamp: payload?.created_at ? Date.parse(payload.created_at) || Date.now() : Date.now()
   })
+
+  if (_onMessage) {
+    try {
+      _onMessage({ user, message: content, isMod, isBroadcaster, userId: String(sender.id || '') })
+    } catch {}
+  }
 }
 
 function handleFrame(raw) {
@@ -328,4 +340,6 @@ function stop() {
   socket = null
 }
 
-module.exports = { start, stop, parseKickMessage, mapBadges, resolveChatroomId, slugFromUrl }
+function setOnMessage(fn) { _onMessage = fn }
+
+module.exports = { start, stop, setOnMessage, parseKickMessage, mapBadges, resolveChatroomId, slugFromUrl }

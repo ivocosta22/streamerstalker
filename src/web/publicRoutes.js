@@ -25,6 +25,15 @@ const PERM_CHIP = {
   all: ''
 }
 
+const TWITCH_PILL = '<svg style="width:14px;height:14px;vertical-align:middle" viewBox="0 0 2400 2800"><g fill="#9146ff"><path fill-rule="evenodd" d="M500,0L0,500v1800h600v500l500-500h400l900-900V0H500z M2200,1300l-400,400h-400l-350,350v-350H600V200h1600V1300z"/><rect x="1700" y="550" width="200" height="600"/><rect x="1150" y="550" width="200" height="600"/></g></svg>'
+const KICK_PILL = '<svg style="width:14px;height:14px;vertical-align:middle" viewBox="0 0 64 64"><path fill="#53fc18" d="M4 6h16v16h6V14h6V6h20v16h-6v8h-6v8h6v8h6v16H32v-8h-6v-8h-6v16H4z"/></svg>'
+
+function platformChips(entry) {
+  const p = entry.platform || 'both'
+  if (p === 'twitch') return `<span class="platform-pills" title="Twitch only">${TWITCH_PILL}</span>`
+  return `<span class="platform-pills" title="Twitch &amp; Kick">${TWITCH_PILL} ${KICK_PILL}</span>`
+}
+
 function duration(ms) {
   if (!Number.isFinite(ms) || ms < 0) return '—'
   const s = Math.floor(ms / 1000)
@@ -51,6 +60,7 @@ function commandsBody() {
       return `<tr${off ? ' style="opacity:.42"' : ''}>
         <td><span class="cmd">${esc(entry.usage)}</span>${aliases}</td>
         <td>${esc(entry.desc)}</td>
+        <td style="text-align:center;white-space:nowrap">${platformChips(entry)}</td>
         <td style="text-align:right">${off ? '<span class="chip off">off</span>' : PERM_CHIP[entry.perm]}</td>
       </tr>`
     }).join('')
@@ -100,9 +110,10 @@ function leaderboardBody(isAdmin) {
   }
 
   const medal = (i) => (i === 0 ? ' g' : i === 1 ? ' s' : i === 2 ? ' b' : '')
+  const kickBadge = (entry) => entry.platform === 'kick' ? ` ${KICK_PILL}` : ''
   const rows = top.map((entry, i) => `<tr>
       <td class="rank${medal(i)}">#${i + 1}</td>
-      <td>${esc(entry.name)}</td>
+      <td>${esc(entry.name)}${kickBadge(entry)}</td>
       <td class="amount">${esc(points.format(entry.amount))}</td>
       ${isAdmin ? removeButton(entry.key, entry.name) : ''}
     </tr>`).join('')
@@ -320,7 +331,7 @@ function createPublicRouter({ admin = () => false } = {}) {
       title: 'Commands · SurferStalker',
       active: '/commands',
       heading: 'Commands',
-      sub: 'Type these in Twitch chat. Numbers shown are defaults and can be tuned.',
+      sub: 'Type these in Twitch or Kick chat. Platform icons show where each command works.',
       body: commandsBody()
     }))
   })

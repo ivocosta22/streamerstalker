@@ -16,9 +16,10 @@
 10. [Running the bot](#running-the-bot)
 11. [The web interface](#the-web-interface)
 12. [The song request player](#the-song-request-player)
-13. [Configuration files](#configuration-files)
-14. [Customizing the bot](#customizing-the-bot)
-15. [Troubleshooting](#troubleshooting)
+13. [Chat client (desktop window)](#chat-client-desktop-window)
+14. [Configuration files](#configuration-files)
+15. [Customizing the bot](#customizing-the-bot)
+16. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -62,9 +63,13 @@ StreamerStalker/
 │   ├── web/                      # Web interface (public pages + admin panel)
 │   ├── state/                    # Runtime state (cooldowns, uptime)
 │   └── utils/                    # Logger, JSON data store
+├── chat/                         # Electron chat client (separate app)
+│   ├── main.js                   # Entry point — opens /chatpop in a native window
+│   └── package.json
 ├── player/                       # Electron song request player
 ├── sounds/                       # Drop .mp3 files here — they become commands
 ├── data/                         # Persistent JSON state (gitignored)
+├── chat.bat                      # Double-click to launch the chat client (gitignored)
 ├── .env.example                  # Template — copy to .env and fill in
 └── package.json
 ```
@@ -93,6 +98,7 @@ The bot itself is headless and runs anywhere Node 18+ runs, including a Raspberr
    cd streamerstalker
    npm install
    cd player && npm install && cd ..
+   cd chat && npm install && cd ..
    ```
 2. Copy the environment template and fill it in:
    ```bash
@@ -227,6 +233,7 @@ Channel point rewards are configured from the **dashboard** (`/dashboard`), not 
 | `WEB_ADMIN_PASSWORD` | Password for the control panel. **Leave blank to disable admin pages entirely** — safe default if the server is exposed to the internet. |
 | `WEB_PUBLIC_URL` | Public base URL if behind a tunnel (e.g. `https://bot.yourdomain.com`). Makes `!commands` and `!leaderboard` post clickable links in chat. No trailing slash. |
 | `WEB_PUBLIC_PAGES` | `true` (default) or `false` to turn off all public pages |
+| `CHAT_HOST` | Hostname or IP of the machine running the bot (default `localhost`). Only used by the Electron chat client — set this when the bot runs on a different machine, e.g. `192.168.1.50`. |
 
 ### Riot Games (optional)
 
@@ -359,7 +366,8 @@ Disable all public pages with `WEB_PUBLIC_PAGES=false`.
 |---|---|
 | `/dashboard` | Toggle modules + edit settings, enable/disable built-in commands, CRUD custom commands, rename currency, adjust balances, set sound volume, manage chat timers, configure channel point rewards, configure the `!time` message and timezone |
 | `/player` | Now playing, queue, skip/pause/volume, clear queue, toggle requests, set backup playlist, queue a song |
-| `/chat` | Unified Twitch + Kick chat viewer with platform badges, emotes, and the ability to send messages as the bot |
+| `/chat` | Unified Twitch + Kick chat viewer with platform badges, emotes, moderation buttons, and the ability to send messages as the bot. "Pop out" button opens `/chatpop`. |
+| `/chatpop` | Standalone chat page — same features as `/chat` but designed to be used as a pop-out window or installed as a desktop app (see [Chat client](#chat-client-desktop-window)) |
 | `/logs` | Live tail of bot output |
 
 **Disabled until `WEB_ADMIN_PASSWORD` is set.** Everything applies immediately — no restart needed.
@@ -437,6 +445,76 @@ Output in `player/dist/`: an NSIS installer and a portable `.exe`.
 The bot pushes full player state (queue, current track, volume, pause state) to the web interface via WebSocket. The web `/player` page can control the desktop player remotely.
 
 If the player isn't running, `!sr` replies that the player is offline and the bot auto-reconnects when it launches.
+
+---
+
+## Chat client (desktop window)
+
+The chat client is a lightweight Electron wrapper around `/chatpop`. It gives you a native window with no browser chrome, resizable to any width (no browser minimum), with live Twitch + Kick chat, moderation buttons on every message, and dual send boxes.
+
+### Setup
+
+The chat client lives in its own `chat/` folder, like the player. Install once:
+
+```bash
+cd chat && npm install
+```
+
+On a Pi or server where you only run the bot, skip this folder entirely.
+
+### Launching
+
+**Double-click `chat.bat`** in the project root. To make a desktop shortcut: right-click `chat.bat` → Create shortcut → drag to Desktop or pin to taskbar.
+
+Or from a terminal:
+
+```bash
+cd chat
+npm start
+```
+
+### Building a standalone .exe
+
+```bash
+cd chat
+npm run build
+```
+
+Output in `chat/dist/`: an NSIS installer and a portable `.exe`. The build bundles your `.env` and the chat icon so the `.exe` works on its own — just make sure the bot is running when you launch it.
+
+If you move the `.exe` to another machine, copy your `.env` next to it (or into the `resources/` folder beside the exe) so it knows which host/port to connect to.
+
+On first open you'll see the admin login page. Enter `WEB_ADMIN_PASSWORD` from `.env`. The session persists until you close the window.
+
+### Keyboard shortcuts
+
+| Shortcut | Action |
+|---|---|
+| **Ctrl+T** | Toggle always-on-top (title shows "pinned" when active) |
+
+### Moderation buttons
+
+Every chat message shows action buttons on hover:
+
+| Button | Action |
+|---|---|
+| **1s** | Timeout 1 second (purge) |
+| **5m** | Timeout 5 minutes |
+| **1d** | Timeout 1 day |
+| **Ban** | Permanent ban (asks for confirmation) |
+| **✕** | Delete single message |
+
+These work for both Twitch (Helix API) and Kick (public API v1). Kick does not support single-message deletion — the button will show an error for Kick messages. The same moderation buttons also appear on the `/chat` admin page in the browser.
+
+### Connecting to a remote bot
+
+When the bot runs on a different machine (e.g. a Raspberry Pi), set `CHAT_HOST` in `.env` on the machine that runs the chat client:
+
+```
+CHAT_HOST=192.168.1.50
+```
+
+The client connects to `http://<CHAT_HOST>:<SERVER_PORT>/chatpop`. The bot itself does not need `CHAT_HOST`. Make sure the remote machine's firewall allows connections on `SERVER_PORT`.
 
 ---
 

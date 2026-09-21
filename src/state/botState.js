@@ -10,6 +10,7 @@
 module.exports = {
   startTime: Date.now(),
   commandCaller: null,
+  platform: 'twitch',
   timeouts: {},
   lastKnownStreamTitle: null
 }

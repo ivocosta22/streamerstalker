@@ -17,6 +17,7 @@ let chatTimestamps = []
 let isLive = false
 let wasLive = false
 let _say = null
+let _kickSay = null
 let _logColor = () => {}
 let _broadcasterId = null
 let _moderatorId = null
@@ -83,8 +84,10 @@ function checkTimers() {
   timer.lastSent = now
   lastGlobalSend = now
 
-  _say(msg)
-  _logColor('cyan', `[SYSTEM] Sent timer "${timer.name}": ${msg}`)
+  const target = timer.target || 'both'
+  if (target === 'twitch' || target === 'both') _say(msg)
+  if ((target === 'kick' || target === 'both') && _kickSay) _kickSay(msg)
+  _logColor('cyan', `[SYSTEM] Sent timer "${timer.name}" → ${target}: ${msg}`)
 }
 
 async function announceGoLive() {
@@ -110,8 +113,9 @@ async function announceGoLive() {
   }
 }
 
-function startChatTimers({ say, broadcasterId, moderatorId, pingList, onGoLive, logColor }) {
+function startChatTimers({ say, kickSay, broadcasterId, moderatorId, pingList, onGoLive, logColor }) {
   _say = say
+  _kickSay = kickSay || null
   _logColor = logColor
   _pingList = pingList
   _onGoLive = onGoLive || null
@@ -188,9 +192,12 @@ function saveTimers(list) {
       return Number.isFinite(n) && n >= 0 && n <= 10000 ? n : fallback
     }
 
+    const target = ['twitch', 'kick', 'both'].includes(entry.target) ? entry.target : 'both'
+
     clean.push({
       name,
       enabled: entry.enabled !== false,
+      target,
       onlineIntervalMinutes: num(entry.onlineIntervalMinutes, 15),
       offlineIntervalMinutes: num(entry.offlineIntervalMinutes, 30),
       chatLinesRequired: num(entry.chatLinesRequired, 0),

@@ -42,11 +42,11 @@ function finish(say) {
   for (const winner of winners) points.addPoints(winner, share)
 
   if (count === 1) {
-    say(`The raffle has ended! @${winners[0]} won ${points.format(share)} ${currency} out of ${names.length} entrant(s)! PogChamp`)
+    say(`The raffle has ended! @${points.displayName(winners[0])} won ${points.format(share)} ${currency} out of ${names.length} entrant(s)! PogChamp`)
     return
   }
 
-  const list = winners.map(w => `@${w}`).join(', ')
+  const list = winners.map(w => `@${points.displayName(w)}`).join(', ')
   say(`The raffle has ended! ${count} winners out of ${names.length} entrants — ${list} each won ${points.format(share)} ${currency}! PogChamp`)
 }
 

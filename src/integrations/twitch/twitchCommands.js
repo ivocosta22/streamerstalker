@@ -489,14 +489,23 @@ function createCommands(context) {
 
   const disabledMsg = (name) => `The ${name} module is currently disabled.`
 
+  function callerKey() {
+    return (botState.platform === 'kick' ? 'kick:' : '') + botState.commandCaller
+  }
+
+  function userKey(user) {
+    return (botState.platform === 'kick' ? 'kick:' : '') + String(user).replace(/^@/, '')
+  }
+
   const pointsCommand = (targetRaw) => {
     const caller = botState.commandCaller
     const currency = points.getCurrencyName()
     if (targetRaw) {
-      const target = String(targetRaw).replace(/^@/, '')
-      return `@${target} has ${points.format(points.getBalance(target))} ${currency}.`
+      const key = userKey(targetRaw)
+      return `@${points.displayName(key)} has ${points.format(points.getBalance(key))} ${currency}.`
     }
-    return `@${caller} you have ${points.format(points.getBalance(caller))} ${currency}.`
+    const key = callerKey()
+    return `@${caller} you have ${points.format(points.getBalance(key))} ${currency}.`
   }
 
   // Chat only has room for the top few, so point at the full page when the web
@@ -524,9 +533,9 @@ function createCommands(context) {
     if (!targetRaw || !amountRaw) return `@${caller} usage: !givepoints <user> <amount>`
     const amount = Math.floor(Number(amountRaw))
     if (!Number.isFinite(amount) || amount <= 0) return `@${caller} "${amountRaw}" isn't a valid amount.`
-    const target = String(targetRaw).replace(/^@/, '')
-    const total = points.addPoints(target, amount)
-    return `@${target} received ${points.format(amount)} ${points.getCurrencyName()}! Balance: ${points.format(total)}`
+    const key = userKey(targetRaw)
+    const total = points.addPoints(key, amount)
+    return `@${points.displayName(key)} received ${points.format(amount)} ${points.getCurrencyName()}! Balance: ${points.format(total)}`
   }
 
   const removePointsCommand = (targetRaw, amountRaw) => {
@@ -535,9 +544,9 @@ function createCommands(context) {
     if (!targetRaw || !amountRaw) return `@${caller} usage: !removepoints <user> <amount>`
     const amount = Math.floor(Number(amountRaw))
     if (!Number.isFinite(amount) || amount <= 0) return `@${caller} "${amountRaw}" isn't a valid amount.`
-    const target = String(targetRaw).replace(/^@/, '')
-    const total = points.removePoints(target, amount)
-    return `@${target} lost ${points.format(amount)} ${points.getCurrencyName()}. Balance: ${points.format(total)}`
+    const key = userKey(targetRaw)
+    const total = points.removePoints(key, amount)
+    return `@${points.displayName(key)} lost ${points.format(amount)} ${points.getCurrencyName()}. Balance: ${points.format(total)}`
   }
 
   const setPointsCommand = (targetRaw, amountRaw) => {
@@ -546,9 +555,9 @@ function createCommands(context) {
     if (!targetRaw || amountRaw === undefined) return `@${caller} usage: !setpoints <user> <amount>`
     const amount = Math.floor(Number(amountRaw))
     if (!Number.isFinite(amount) || amount < 0) return `@${caller} "${amountRaw}" isn't a valid amount.`
-    const target = String(targetRaw).replace(/^@/, '')
-    const total = points.setBalance(target, amount)
-    return `@${target} now has ${points.format(total)} ${points.getCurrencyName()}.`
+    const key = userKey(targetRaw)
+    const total = points.setBalance(key, amount)
+    return `@${points.displayName(key)} now has ${points.format(total)} ${points.getCurrencyName()}.`
   }
 
   const setPointsNameCommand = (...args) => {
@@ -587,27 +596,27 @@ function createCommands(context) {
 
   const slotsCommand = (amountRaw) => {
     if (!modules.isEnabled('slots')) return disabledMsg('slots')
-    return slots.spin(botState.commandCaller, amountRaw)
+    return slots.spin(callerKey(), amountRaw)
   }
 
   const gambleCommand = (amountRaw) => {
     if (!modules.isEnabled('gamble')) return disabledMsg('gamble')
-    return gambleModule.gamble(botState.commandCaller, amountRaw)
+    return gambleModule.gamble(callerKey(), amountRaw)
   }
 
   const duelCommand = (targetRaw, amountRaw) => {
     if (!modules.isEnabled('duel')) return disabledMsg('duel')
-    return duel.challenge(botState.commandCaller, targetRaw, amountRaw)
+    return duel.challenge(callerKey(), userKey(targetRaw), amountRaw)
   }
 
   const acceptCommand = () => {
     if (!modules.isEnabled('duel')) return ''
-    return duel.accept(botState.commandCaller)
+    return duel.accept(callerKey())
   }
 
   const denyCommand = () => {
     if (!modules.isEnabled('duel')) return ''
-    return duel.deny(botState.commandCaller)
+    return duel.deny(callerKey())
   }
 
   const startRaffle = (potRaw, singleWinner) => {
@@ -626,7 +635,7 @@ function createCommands(context) {
 
   // Joins are silent on purpose — confirming each one would flood chat.
   const joinCommand = () => {
-    raffle.join(botState.commandCaller)
+    raffle.join(callerKey())
     return ''
   }
 
@@ -639,7 +648,8 @@ function createCommands(context) {
 
     if (!callerUserId) return ''
 
-    const balance = points.getBalance(caller)
+    const key = callerKey()
+    const balance = points.getBalance(key)
     if (balance < VIP_COST) {
       return `@${caller} you need ${points.format(VIP_COST)} ${currency} to redeem VIP (you have ${points.format(balance)}).`
     }
@@ -656,7 +666,7 @@ function createCommands(context) {
         .set('Client-Id', twitchBotAPIClientID)
 
       if (res.status === 204 || res.status === 200) {
-        points.removePoints(caller, VIP_COST)
+        points.removePoints(key, VIP_COST)
         logColor('green', `[TWITCH] ⭐ ${caller} redeemed VIP for ${points.format(VIP_COST)} ${currency}`)
         return `@${caller} you are now a VIP! (−${points.format(VIP_COST)} ${currency})`
       }

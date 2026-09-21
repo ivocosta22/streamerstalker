@@ -21,7 +21,7 @@ const { logColor } = require('./utils/logger')
 logColor('cyan', '[SYSTEM] 👓 SurferStalker is starting...')
 
 
-const { twitch, discord, obs, chat, streamer } = require('./config/env')
+const { twitch, discord, obs, chat, streamer, kick } = require('./config/env')
 const { getToken } = require('./integrations/twitch/twitchAPI')
 const songRequestClient = require('./integrations/player/songRequestClient')
 const obsController = require('./integrations/obs/obsController')
@@ -44,6 +44,8 @@ const chatBus = require('./integrations/twitch/chatBus')
 const badgeResolver = require('./integrations/twitch/badgeResolver')
 const emoteResolver = require('./integrations/twitch/emoteResolver')
 const kickChat = require('./integrations/kick/kickChat')
+const kickAuth = require('./integrations/kick/kickAuth')
+const kickSend = require('./integrations/kick/kickSend')
 process.on('unhandledRejection', (reason) => {
   logColor('red', `[SYSTEM] Unhandled Rejection: ${reason}`)
 })
@@ -86,6 +88,32 @@ songRequestClient.start(logColor, async (enabled) => {
 // ============================================================
 const keepAlive = require('./server')
 keepAlive()
+
+// Kick send — must come after the server starts so /kick/callback is reachable
+kickAuth.start()
+chatBus.setKickSay((msg) => kickSend.send(msg))
+if (kick.clientId && !kickAuth.isAuthorized()) {
+  const url = kickAuth.getAuthorizeUrl()
+  if (url) {
+    logColor('yellow', '[KICK] Bot is not authorized to send messages yet')
+    logColor('cyan', `[KICK] Authorize here (logged in as SurferStalker on Kick): ${url}`)
+  }
+}
+
+kickChat.setOnMessage(({ user, message, isMod, isBroadcaster, userId }) => {
+  recordChatLine()
+  pointsAccrual.recordActivity(user, 'kick')
+
+  botState.commandCaller = user
+  botState.commandCallerUserId = userId || null
+  botState.isMod = isMod
+  botState.isBroadcaster = isBroadcaster
+  botState.platform = 'kick'
+
+  dispatchCommand(message, (response) => {
+    kickSend.send(response)
+  }, { platform: 'kick' })
+})
 
 
 // ============================================================
@@ -153,8 +181,73 @@ pointsAccrual.start({ logColor })
 overlayEmotes.start()
 let _discordClient = null
 
+const TWITCH_ONLY_COMMANDS = new Set(['wither', 'vanish', 'so', 'redeemvip'])
+
+async function dispatchCommand(message, reply, { platform = 'twitch' } = {}) {
+  const trimmed = message.trim()
+  if (!trimmed.startsWith(twitch.prefix)) return
+
+  const parts = trimmed.slice(twitch.prefix.length).trim().split(/\s+/)
+  const commandName = parts.shift()
+  const args = parts
+  const lookup = commandName.toLowerCase()
+
+  logColor('yellow', `[${platform.toUpperCase()}] ⚠️ Command Detected: ${commandName} ${args.join(' ')}`)
+
+  let matchedCommand = commands.find(c => c.name.toLowerCase() === lookup)
+
+  if (!matchedCommand) {
+    const alias = pointsStore.getCurrencyAlias()
+    if (alias && lookup === alias) {
+      matchedCommand = commands.find(c => c.name === 'points')
+    }
+  }
+
+  if (matchedCommand &&
+      (commandToggles.isDisabled(lookup) || commandToggles.isDisabled(matchedCommand.name))) {
+    logColor('yellow', `[${platform.toUpperCase()}] Ignored ${commandName} — command is disabled`)
+    reply(`@${botState.commandCaller} !${lookup} is turned off right now.`)
+    return
+  }
+
+  if (!matchedCommand && overlaySounds.has(lookup)) {
+    const soundResponse = overlayActions.playSound(botState.commandCaller, lookup)
+    if (soundResponse) reply(soundResponse)
+    logColor('green', `[${platform.toUpperCase()}] ✅ Played sound ${lookup}`)
+    return
+  }
+
+  if (!matchedCommand) {
+    const customResponse = customCommands.get(lookup)
+    if (customResponse) {
+      reply(customResponse)
+      logColor('green', `[${platform.toUpperCase()}] ✅ Executed custom command ${commandName}`)
+      return
+    }
+    if (platform === 'twitch') logColor('red', `[TWITCH] ❌ Unknown command ${commandName}`)
+    return
+  }
+
+  if (platform === 'kick' && TWITCH_ONLY_COMMANDS.has(matchedCommand.name)) {
+    reply(`@${botState.commandCaller} !${commandName} only works on Twitch.`)
+    return
+  }
+
+  try {
+    const response = typeof matchedCommand.response === 'function'
+      ? await matchedCommand.response(...args)
+      : matchedCommand.response
+
+    if (response) reply(response)
+    logColor('green', `[${platform.toUpperCase()}] ✅ Executed ${commandName} command`)
+  } catch (err) {
+    logColor('red', `[${platform.toUpperCase()}] ❌ Error executing ${commandName}: ${err?.message || err}`)
+  }
+}
+
 startChatTimers({
   say: (msg) => ComfyJS.Say(msg),
+  kickSay: (msg) => kickSend.send(msg),
   broadcasterId: twitch.channelUserId,
   moderatorId: twitch.botUserId,
   pingList,
@@ -237,12 +330,12 @@ twitchChatClient.on('message', async (target, context, msg, self) => {
   botState.commandCallerUserId = context['user-id'] || null
   botState.isMod = !!context.mod
   botState.isBroadcaster = (context.username || '').toLowerCase() === twitch.channel.toLowerCase()
+  botState.platform = 'twitch'
 
   if (self || botState.commandCaller === twitch.botUsername) return
 
   chatBus.push(context, msg)
 
-  // Ignores StreamElements messages but still logs them
   if (botState.commandCaller === 'StreamElements') {
     logColor('default', `[TWITCH] ${botState.commandCaller}: ${msg}`)
     return
@@ -254,8 +347,6 @@ twitchChatClient.on('message', async (target, context, msg, self) => {
 
   const message = msg.trim()
 
-  // Emote combos and pyramids are driven by ordinary chat, so this has to see
-  // every message — including non-commands, which are what break a combo.
   try {
     overlayTracker.processMessage({
       user: displayName,
@@ -266,7 +357,6 @@ twitchChatClient.on('message', async (target, context, msg, self) => {
     logColor('red', `[SYSTEM] Tracker error: ${err?.message || err}`)
   }
 
-  // Cannon "-10" trigger (not a command, plain chat message)
   if (message === '-10') {
     const stacks = cannonStacks.removeStacks(10)
     const response = `Surfer lagged Kappa and lost a total of ${stacks} stacks LULE`
@@ -274,66 +364,9 @@ twitchChatClient.on('message', async (target, context, msg, self) => {
     return
   }
 
-  if (!message.startsWith(twitch.prefix)) return
-
-  const parts = message.slice(twitch.prefix.length).trim().split(/\s+/)
-  const commandName = parts.shift()
-  const args = parts
-  logColor('yellow', `[TWITCH] ⚠️ Command Detected: ${commandName} ${args.join(' ')}`)
-
-  const lookup = commandName.toLowerCase()
-  let matchedCommand = commands.find(c => c.name.toLowerCase() === lookup)
-
-  // The balance command follows whatever the currency is currently named, so
-  // !setpointsname Coins makes !coins work. !points always stays available.
-  if (!matchedCommand) {
-    const alias = pointsStore.getCurrencyAlias()
-    if (alias && lookup === alias) {
-      matchedCommand = commands.find(c => c.name === 'points')
-    }
-  }
-
-  // Both names are checked so disabling "points" also kills its currency alias.
-  if (matchedCommand &&
-      (commandToggles.isDisabled(lookup) || commandToggles.isDisabled(matchedCommand.name))) {
-    logColor('yellow', `[TWITCH] Ignored ${commandName} — command is disabled`)
-    if (chat.enabled) {
-      twitchChatClient.say(target, `@${displayName} !${lookup} is turned off right now.`)
-    }
-    return
-  }
-
-  // Any file in sounds/ is playable as its own command, so !eww works
-  // alongside !playsound eww without needing to be registered.
-  if (!matchedCommand && overlaySounds.has(lookup)) {
-    const soundResponse = overlayActions.playSound(displayName, lookup)
-    if (soundResponse && chat.enabled) twitchChatClient.say(target, soundResponse)
-    logColor('green', `[TWITCH] ✅ Played sound ${lookup}`)
-    return
-  }
-
-  // Check custom commands if no built-in match
-  if (!matchedCommand) {
-    const customResponse = customCommands.get(lookup)
-    if (customResponse) {
-      if (chat.enabled) twitchChatClient.say(target, customResponse)
-      logColor('green', `[TWITCH] ✅ Executed custom command ${commandName}`)
-      return
-    }
-    logColor('red', `[TWITCH] ❌ Unknown command ${commandName}`)
-    return
-  }
-
-  try {
-    const response = typeof matchedCommand.response === 'function'
-      ? await matchedCommand.response(...args)
-      : matchedCommand.response
-
-    if (response && chat.enabled) twitchChatClient.say(target, response)
-    logColor('green', `[TWITCH] ✅ Executed ${commandName} command`)
-  } catch (err) {
-    logColor('red', `[TWITCH] ❌ Error executing ${commandName}: ${err?.message || err}`)
-  }
+  await dispatchCommand(message, (response) => {
+    if (chat.enabled) twitchChatClient.say(target, response)
+  }, { platform: 'twitch' })
 })
 
 // ============================================================
@@ -484,6 +517,7 @@ process.on('SIGINT', async () => {
   } catch {}
 
   try { kickChat.stop() } catch {}
+  try { kickAuth.stop() } catch {}
 
   logColor('yellow', '[SYSTEM] ✅ Shutdown complete')
   process.exit(0)

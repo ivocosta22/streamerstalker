@@ -7,10 +7,11 @@ const activity = new Map()
 
 let timer = null
 
-function recordActivity(user) {
-  const k = String(user || '').toLowerCase()
-  if (!k) return
-  activity.set(k, { name: user, lastSeen: Date.now() })
+function recordActivity(user, platform = 'twitch') {
+  const raw = String(user || '').toLowerCase()
+  if (!raw) return
+  const k = platform === 'kick' ? `kick:${raw}` : raw
+  activity.set(k, { name: user, platform, lastSeen: Date.now() })
 }
 
 function payout(logColor) {
@@ -25,7 +26,8 @@ function payout(logColor) {
       activity.delete(k)
       continue
     }
-    points.addPoints(entry.name, cfg.amount)
+    const pointsUser = entry.platform === 'kick' ? `kick:${entry.name}` : entry.name
+    points.addPoints(pointsUser, cfg.amount)
     paid++
   }
 

@@ -22,26 +22,27 @@ function spin(user, amountArg) {
   const minBet = cfg.minBet || 10
 
   const now = Date.now()
+  const name = points.displayName(user)
   const readyAt = (lastSpin.get(user.toLowerCase()) || 0) + cfg.cooldownSeconds * 1000
   if (now < readyAt) {
-    return `@${user} slots are on cooldown for ${Math.ceil((readyAt - now) / 1000)}s.`
+    return `@${name} slots are on cooldown for ${Math.ceil((readyAt - now) / 1000)}s.`
   }
 
   const balance = points.getBalance(user)
 
   if (!amountArg) {
-    return `@${user} usage: !slots <amount> (min ${points.format(minBet)} ${currency})`
+    return `@${name} usage: !slots <amount> (min ${points.format(minBet)} ${currency})`
   }
 
   const bet = points.parseAmount(amountArg, balance)
   if (bet === null || bet <= 0) {
-    return `@${user} invalid amount.`
+    return `@${name} invalid amount.`
   }
   if (bet < minBet) {
-    return `@${user} minimum bet is ${points.format(minBet)} ${currency}.`
+    return `@${name} minimum bet is ${points.format(minBet)} ${currency}.`
   }
   if (bet > balance) {
-    return `@${user} you only have ${points.format(balance)} ${currency}.`
+    return `@${name} you only have ${points.format(balance)} ${currency}.`
   }
 
   lastSpin.set(user.toLowerCase(), now)
@@ -55,17 +56,17 @@ function spin(user, amountArg) {
   if (allSame) {
     const payout = bet * cfg.jackpotMultiplier
     const total = points.addPoints(user, payout)
-    return `[ ${display} ] JACKPOT! @${user} won ${points.format(payout)} ${currency}! Balance: ${points.format(total)} PogChamp`
+    return `[ ${display} ] JACKPOT! @${name} won ${points.format(payout)} ${currency}! Balance: ${points.format(total)} PogChamp`
   }
 
   if (twoSame) {
     const payout = bet * cfg.pairMultiplier
     const total = points.addPoints(user, payout)
-    return `[ ${display} ] @${user} matched a pair and won ${points.format(payout)} ${currency}! Balance: ${points.format(total)}`
+    return `[ ${display} ] @${name} matched a pair and won ${points.format(payout)} ${currency}! Balance: ${points.format(total)}`
   }
 
   const total = points.getBalance(user)
-  return `[ ${display} ] @${user} lost ${points.format(bet)} ${currency}. Balance: ${points.format(total)} Sadge`
+  return `[ ${display} ] @${name} lost ${points.format(bet)} ${currency}. Balance: ${points.format(total)} Sadge`
 }
 
 module.exports = { spin }

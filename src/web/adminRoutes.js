@@ -276,10 +276,21 @@ function timerCard(timer) {
     onclick: function () { timer.enabled = !timer.enabled; renderTimers(); }
   });
 
+  var targetSelect = h('select');
+  ['both', 'twitch', 'kick'].forEach(function (v) {
+    var opt = h('option', { value: v, text: v.charAt(0).toUpperCase() + v.slice(1) });
+    if ((timer.target || 'both') === v) opt.selected = true;
+    targetSelect.appendChild(opt);
+  });
+  targetSelect.addEventListener('change', function () { timer.target = targetSelect.value; });
+
   return h('div', { class: 'card', style: 'margin-bottom:12px' }, [
     h('div', { class: 'row', style: 'gap:10px;margin-bottom:12px' }, [
       h('div', { class: 'field', style: 'flex:1 1 180px;margin:0' }, [
         h('label', { text: 'Name' }), name
+      ]),
+      h('div', { class: 'field', style: 'flex:0 0 auto;margin:0' }, [
+        h('label', { text: 'Target' }), targetSelect
       ]),
       toggle,
       h('button', {
@@ -400,7 +411,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   document.getElementById('addTimer').addEventListener('click', function () {
     state.timers.push({
-      name: 'New timer', enabled: true, onlineIntervalMinutes: 15,
+      name: 'New timer', enabled: true, target: 'both', onlineIntervalMinutes: 15,
       offlineIntervalMinutes: 30, chatLinesRequired: 0, messages: ['Edit me']
     });
     renderTimers();

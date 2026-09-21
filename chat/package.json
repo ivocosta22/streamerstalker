@@ -1,0 +1,52 @@
+{
+  "name": "surferstalker-chat",
+  "productName": "SurferStalker Chat",
+  "version": "1.0.0",
+  "description": "SurferStalker Chat Client",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^44.4.3",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.ivocosta.surferstalker.chat",
+    "productName": "SurferStalker Chat",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js"
+    ],
+    "extraResources": [
+      {
+        "from": "../player/assets/iconChat.png",
+        "to": "iconChat.png"
+      },
+      {
+        "from": "../.env",
+        "to": ".env"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "../player/assets/iconChat.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "deleteAppDataOnUninstall": false
+    }
+  }
+}

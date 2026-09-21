@@ -49,7 +49,8 @@ const DOCS = [
     name: 'redeemvip', cat: 'Points & Economy',
     usage: '!redeemvip',
     desc: 'Spends 100,000 to make you a VIP. The points only leave your balance once Twitch confirms the VIP was granted — if it fails, you keep them.',
-    perm: 'all'
+    perm: 'all',
+    platform: 'twitch'
   },
   {
     name: 'givepoints', cat: 'Points & Economy',
@@ -203,7 +204,8 @@ const DOCS = [
     name: 'so', cat: 'Stream Info',
     usage: '!so <user>',
     desc: 'Posts a shoutout announcement for another streamer, including what they last played.',
-    perm: 'all'
+    perm: 'all',
+    platform: 'twitch'
   },
   {
     name: 'commands', aliases: ['commandlist', 'help'], cat: 'Stream Info',
@@ -235,7 +237,8 @@ const DOCS = [
     name: 'vanish', cat: 'Fun',
     usage: '!vanish',
     desc: 'Times you out for one second, which clears your messages from chat.',
-    perm: 'all'
+    perm: 'all',
+    platform: 'twitch'
   },
   {
     name: 'tuck', cat: 'Fun',
@@ -274,7 +277,8 @@ const DOCS = [
     name: 'wither', cat: CUSTOM_BUILT,
     usage: '!wither <user>',
     desc: 'Times someone out for a minute, stacking longer each time you get them. Five minute cooldown per person.',
-    perm: 'all'
+    perm: 'all',
+    platform: 'twitch'
   },
 
   // ---- Command Management ----

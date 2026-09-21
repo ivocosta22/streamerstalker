@@ -169,6 +169,8 @@ const STYLE = `
   .chip.on { background: rgba(0,184,132,.13); color: var(--good); border-color: rgba(0,184,132,.3); }
   .chip.off { background: rgba(248,113,113,.13); color: var(--bad); border-color: rgba(248,113,113,.3); }
 
+  .platform-pills { display: inline-flex; gap: 3px; align-items: center; }
+
   .muted { color: var(--muted); }
   .empty { color: var(--muted); text-align: center; padding: 44px 20px; }
 
