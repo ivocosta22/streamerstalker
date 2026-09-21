@@ -8,6 +8,9 @@
     "start": "electron .",
     "build": "electron-builder"
   },
+  "dependencies": {
+    "dotenv": "^16.6.1"
+  },
   "devDependencies": {
     "electron": "^44.4.3",
     "electron-builder": "^25.1.8"
@@ -19,7 +22,8 @@
       "output": "dist"
     },
     "files": [
-      "main.js"
+      "main.js",
+      "node_modules/dotenv/**"
     ],
     "extraResources": [
       {
@@ -35,11 +39,15 @@
       "target": [
         {
           "target": "nsis",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         },
         {
           "target": "portable",
-          "arch": ["x64"]
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "icon": "../player/assets/iconChat.png"
