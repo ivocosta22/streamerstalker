@@ -53,7 +53,7 @@ StreamerStalker/
 │   │   ├── pingList.json         # Users pinged on title change / go-live
 │   │   └── tokens/               # Auto-managed OAuth tokens (gitignored)
 │   ├── integrations/
-│   │   ├── twitch/               # Chat commands, rewards, timers, emotes, badges
+│   │   ├── twitch/               # Chat commands, timers, emotes, badges
 │   │   ├── kick/                 # Kick chat listener (Pusher WebSocket)
 │   │   ├── discord/              # Discord slash commands and chat bridge
 │   │   ├── obs/                  # OBS WebSocket controller
@@ -127,7 +127,7 @@ The bot itself is headless and runs anywhere Node 18+ runs, including a Raspberr
 
 **Raspberry Pi** — use 64-bit Pi OS (Bookworm+) on a Pi 4/5 with 2+ GB RAM. Install just the bot (skip the player). To keep it running after logout, use systemd:
 
-Create `/etc/systemd/system/surferstalker.service`:
+Create `/etc/systemd/system/streamerstalker.service`:
 ```ini
 [Unit]
 Description=StreamerStalker bot
@@ -146,7 +146,7 @@ StandardInput=null
 WantedBy=multi-user.target
 ```
 
-Then: `sudo systemctl daemon-reload && sudo systemctl enable --now surferstalker`
+Then: `sudo systemctl daemon-reload && sudo systemctl enable --now streamerstalker`
 
 OBS features won't work on the Pi unless `OBS_WS_URL` points to the machine actually running OBS on your LAN.
 
@@ -179,11 +179,10 @@ Everything is loaded at startup by `src/config/env.js`. Missing required variabl
 Replace `YOUR_CLIENT_ID` in this template:
 
 ```
-https://id.twitch.tv/oauth2/authorize?response_type=code&client_id=YOUR_CLIENT_ID&redirect_uri=http://localhost:3000&scope=channel:read:redemptions%20moderation:read%20channel:moderate%20user:write:chat%20moderator:manage:banned_users%20moderator:manage:announcements%20channel:manage:vips
+https://id.twitch.tv/oauth2/authorize?response_type=code&client_id=YOUR_CLIENT_ID&redirect_uri=http://localhost:3000&scope=moderation:read%20channel:moderate%20user:write:chat%20moderator:manage:banned_users%20moderator:manage:announcements%20channel:manage:vips
 ```
 
 Required scopes:
-- `channel:read:redemptions` — read channel point redemptions
 - `moderation:read` — read moderation actions
 - `channel:moderate` — perform moderator actions
 - `user:write:chat` — send chat as the bot
@@ -229,7 +228,6 @@ Leave these blank to run Kick in listen-only mode. See [Kick chat setup](#kick-c
 | `OBS_WS_URL` | WebSocket URL, default `ws://127.0.0.1:4455` |
 | `OBS_WS_PASSWORD` | Password from OBS → Tools → WebSocket Server Settings |
 | `OBS_AUTO_RECONNECT_TIME` | Reconnect interval in ms (default `300000` = 5 min) |
-| `OBS_REVERT_DELAY_MS` | Wide-cam revert delay in ms (default `600000` = 10 min) |
 
 ### Server & web
 
@@ -267,7 +265,7 @@ Tokens are saved to `src/config/tokens/twitch-user-tokens.json` (gitignored). Yo
 2. **Bot** tab → Add Bot → copy the token into `DISCORD_BOT_TOKEN`.
 3. Enable **MESSAGE CONTENT INTENT** on the Bot page.
 4. Copy the Application ID into `DISCORD_BOT_ID`.
-5. **OAuth2 → URL Generator**: scopes `bot` + `applications.commands`, permissions: Send Messages, Read Message History, Use Slash Commands, Mention Everyone.
+5. **OAuth2 → URL Generator**: scopes `bot` + `applications.commands`, permissions: Send Messages, Read Message History, Use Slash Commands, Mention Everyone, Manage Webhooks.
 6. Use the generated URL to invite the bot to your server.
 7. In Discord (Developer Mode on), copy the Server ID and two Channel IDs into `.env`.
 8. Register slash commands:
@@ -275,6 +273,15 @@ Tokens are saved to `src/config/tokens/twitch-user-tokens.json` (gitignored). Yo
    node src/integrations/discord/register-commands.js
    ```
    Re-run whenever you change definitions. Current commands: `/ping`, `/coinflip`, `/say`.
+
+### Chat bridge
+
+The bot bridges the channel set by `DISCORD_TWITCH_CHANNEL_COMMUNICATION_ID` with Twitch and Kick chat in both directions:
+
+- **Discord → Twitch + Kick**: messages from the Discord channel are forwarded to both platforms.
+- **Twitch/Kick → Discord**: each chat message appears via webhook with the user's name, platform tag (e.g. `Username [Twitch]`), and their profile picture.
+
+The bot needs **Manage Webhooks** permission on the channel. It creates a webhook automatically on first run. If the permission is missing, the bridge logs a warning and stays disabled — everything else works normally.
 
 ---
 
@@ -337,10 +344,8 @@ The bot expects these source names in your scenes (if they don't exist, the feat
 
 | Source | Type | What it does |
 |---|---|---|
-| `MicTimer` | Text (GDI+) | Mute countdown overlay |
 | `!srDisabled` | Text (GDI+) | Shown when song requests are off |
-| `Mic/Aux` | Audio input | Muted by the mute rewards |
-| `Camera` | Any | Wide-cam reward toggles between scaled/unscaled instances |
+| `WitherText` | Text (GDI+) | Animated text overlay for command responses |
 
 ---
 
@@ -410,19 +415,19 @@ The bot listens on localhost only. Use a tunnel to let viewers reach the public 
 2. Create a tunnel:
    ```bash
    cloudflared tunnel login
-   cloudflared tunnel create surferstalker
-   cloudflared tunnel route dns surferstalker bot.yourdomain.com
+   cloudflared tunnel create streamerstalker
+   cloudflared tunnel route dns streamerstalker bot.yourdomain.com
    ```
 3. Configure `~/.cloudflared/config.yml`:
    ```yaml
-   tunnel: surferstalker
+   tunnel: streamerstalker
    credentials-file: /home/you/.cloudflared/<tunnel-id>.json
    ingress:
      - hostname: bot.yourdomain.com
        service: http://localhost:3000
      - service: http_status:404
    ```
-4. Run: `cloudflared tunnel run surferstalker` (or install as a service).
+4. Run: `cloudflared tunnel run streamerstalker` (or install as a service).
 5. Set `WEB_PUBLIC_URL=https://bot.yourdomain.com` in `.env` and restart the bot.
 
 For a quick test, `ngrok http 3000` gives a temporary URL.

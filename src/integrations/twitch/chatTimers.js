@@ -4,8 +4,8 @@ const { isStreamLive, getStreamInfo, getChannelInformation, sendChatAnnouncement
 
 // Overridable for the same reason as the data directory: a test run must not
 // rewrite the timers the live bot is reading.
-const TIMERS_PATH = process.env.SURFERSTALKER_TIMERS_PATH
-  ? path.resolve(process.env.SURFERSTALKER_TIMERS_PATH)
+const TIMERS_PATH = process.env.STREAMERSTALKER_TIMERS_PATH
+  ? path.resolve(process.env.STREAMERSTALKER_TIMERS_PATH)
   : path.resolve(__dirname, '../../config/timers.json')
 const CHAT_COUNT_WINDOW_MS = 5 * 60 * 1000
 const LIVE_CHECK_INTERVAL_MS = 60 * 1000

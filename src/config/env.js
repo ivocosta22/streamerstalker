@@ -103,8 +103,7 @@ module.exports = Object.freeze({
   obs: Object.freeze({
     url: requireEnv('OBS_WS_URL'),
     password: requireEnv('OBS_WS_PASSWORD'),
-    reconnectIntervalMs: requireEnvNumber('OBS_AUTO_RECONNECT_TIME'),
-    revertDelayMs: requireEnvNumber('OBS_REVERT_DELAY_MS')
+    reconnectIntervalMs: requireEnvNumber('OBS_AUTO_RECONNECT_TIME')
   }),
 
   server: Object.freeze({
@@ -113,10 +112,6 @@ module.exports = Object.freeze({
 
   chat: Object.freeze({
     enabled: optionalEnvBool('CHAT_ENABLED', true)
-  }),
-
-  riot: Object.freeze({
-    apiKey: process.env.RIOT_API_KEY || null
   }),
 
   // Admin pages stay off until a password is set, so exposing the server to the

@@ -44,6 +44,7 @@ const emoteResolver = require('./integrations/twitch/emoteResolver')
 const kickChat = require('./integrations/kick/kickChat')
 const kickAuth = require('./integrations/kick/kickAuth')
 const kickSend = require('./integrations/kick/kickSend')
+const chatBridge = require('./integrations/discord/chatBridge')
 process.on('unhandledRejection', (reason) => {
   logColor('red', `[SYSTEM] Unhandled Rejection: ${reason}`)
 })
@@ -94,7 +95,7 @@ if (kick.clientId && !kickAuth.isAuthorized()) {
   const url = kickAuth.getAuthorizeUrl()
   if (url) {
     logColor('yellow', '[KICK] Bot is not authorized to send messages yet')
-    logColor('cyan', `[KICK] Authorize here (logged in as StreamerStalker on Kick): ${url}`)
+    logColor('cyan', `[KICK] Authorize here (logged in as your bot account on Kick): ${url}`)
   }
 }
 
@@ -385,6 +386,9 @@ discordClient.once('clientReady', () => {
   try {
     discordClient.user.setActivity('👀 Watching streams', { type: ActivityType.Watching })
     logColor('green', `[DISCORD] ✅ Logged in as ${discordClient.user.tag}`)
+    chatBridge.start(discordClient).catch(err => {
+      logColor('red', `[DISCORD] Chat bridge failed to start: ${err?.message || err}`)
+    })
   } catch (err) {
     logColor('red', `[DISCORD] ❌ Error in ready handler: ${err?.message || err}`)
   }
@@ -445,29 +449,7 @@ discordClient.on('interactionCreate', async (interaction) => {
   }
 })
 
-// ============================================================
-// Discord → Twitch Bridge
-// Forwards messages from configured Discord channel(s) into Twitch chat
-// Mentions are resolved to readable usernames
-// ============================================================
-discordClient.on('messageCreate', async (message) => {
-  if (message.channelId !== discord.communicationChannelId) return
-
-  let content = message.content
-  const mentions = content.match(/<@!?(\d+)>/g)
-  if (mentions) {
-    for (const mention of mentions) {
-      const userId = mention.match(/\d+/)[0]
-      try {
-        const user = await discordClient.users.fetch(userId)
-        content = content.replace(mention, `@${user.username}`)
-      } catch (err) {
-        logColor('red', `[DISCORD] ❌ Failed to fetch user ${userId}: ${err?.message || err}`)
-      }
-    }
-  }
-  ComfyJS.Say(`[DISCORD] ${message.author.username}: ${content}`)
-})
+// Discord ↔ Twitch/Kick bridge is handled by chatBridge.js (started in clientReady)
 
 // ============================================================
 // Authenticates and starts the Discord client
@@ -493,6 +475,7 @@ process.on('SIGINT', async () => {
     logColor('green', '[SYSTEM] ✅ Discord disconnected')
   } catch {}
 
+  try { chatBridge.stop() } catch {}
   try { kickChat.stop() } catch {}
   try { kickAuth.stop() } catch {}
 

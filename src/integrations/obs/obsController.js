@@ -9,9 +9,7 @@
  *
  * Functionality:
  *
- * - Controls Camera states (wide / normal)
  * - Updates and animates text sources
- * - Manages microphone mute timers
  *
  * This module encapsulates all OBS-related functionality
  * and exposes a singleton controller instance.
@@ -40,15 +38,6 @@ class OBSController {
     // Cached scene list
     this.OBS_SCENES = []
 
-    // Camera configuration
-    this.WIDE_CAM_SCALE_THRESHOLD = 1.2
-
-    // Automatic revert delay for wide camera (from env, with safe fallback)
-    this.REVERT_DELAY_MS = Number(obsConfig.revertDelayMs) || 10 * 60 * 1000
-
-    this.isWideCamActive = false
-    this.revertTimeout = null
-    this.micMuteTimeout = null
     this.witherSlideTimeout = null
 
     // Handle unexpected connection loss
@@ -305,183 +294,6 @@ class OBSController {
     }
   }
 
-  // ============================================================
-  // Camera Control
-  // ============================================================
-  async getCameraItems(sceneName) {
-    const { sceneItems } = await this.obs.call('GetSceneItemList', { sceneName })
-    return sceneItems.filter(item => item.sourceName === 'Camera')
-  }
-
-  async isWideCamera(sceneName, sceneItemId) {
-    const { sceneItemTransform } = await this.obs.call('GetSceneItemTransform', {
-      sceneName,
-      sceneItemId
-    })
-
-    return (
-      sceneItemTransform.scaleX > this.WIDE_CAM_SCALE_THRESHOLD ||
-      sceneItemTransform.scaleY > this.WIDE_CAM_SCALE_THRESHOLD
-    )
-  }
-
-  async switchCamera(sceneName, enableWide) {
-    const cameraItems = await this.getCameraItems(sceneName)
-
-    for (const item of cameraItems) {
-      const wide = await this.isWideCamera(sceneName, item.sceneItemId)
-
-      await this.obs.call('SetSceneItemEnabled', {
-        sceneName,
-        sceneItemId: item.sceneItemId,
-        sceneItemEnabled: enableWide ? wide : !wide
-      })
-    }
-  }
-
-  /**
-   * Activates wide camera across all scenes.
-   *
-   * Automatically reverts after configured delay.
-   */
-  async activateWideCam() {
-    if (this.isWideCamActive) {
-      logColor('yellow', '[OBS] ⚠️ Wide cam already active')
-      return
-    }
-
-    this.isWideCamActive = true
-
-    for (const scene of this.OBS_SCENES) {
-      await this.switchCamera(scene, true)
-    }
-
-    logColor('cyan', '[OBS] 📸 Wide camera activated')
-
-    if (this.revertTimeout) clearTimeout(this.revertTimeout)
-    this.revertTimeout = setTimeout(() => this.revertToNormalCam(), this.REVERT_DELAY_MS)
-  }
-
-  /**
-   * Restores normal camera state across all scenes.
-   */
-  async revertToNormalCam() {
-    for (const scene of this.OBS_SCENES) {
-      await this.switchCamera(scene, false)
-    }
-
-    this.isWideCamActive = false
-    this.revertTimeout = null
-
-    logColor('cyan', '[OBS] 🔄 Reverted to normal camera')
-  }
-
-  // ============================================================
-  // Microphone Control
-  // ============================================================
-  /**
-   * Mutes microphone for specified duration.
-   *
-   * Displays countdown timer in OBS scenes
-   * and automatically unmutes when timer expires.
-   *
-   * @param {number} durationMs
-   * @param {string} [timerSourceName]
-   */
-  async muteMicForDuration(durationMs, timerSourceName = 'MicTimer') {
-    if (!this.obs) return
-
-    try {
-      await this.obs.call('SetInputMute', {
-        inputName: 'Mic/Aux',
-        inputMuted: true
-      })
-
-      logColor('yellow', '[OBS] 🎙️ Mic muted')
-
-      const endTime = Date.now() + durationMs
-      for (const scene of this.OBS_SCENES) {
-        try {
-          const item = await this.getSceneItem(scene, timerSourceName)
-          if (item) {
-            await this.obs.call('SetSceneItemEnabled', {
-              sceneName: scene,
-              sceneItemId: item.sceneItemId,
-              sceneItemEnabled: true
-            })
-          }
-        } catch {}
-      }
-
-      if (this.micMuteTimeout) clearTimeout(this.micMuteTimeout)
-      if (this.timerUpdateInterval) clearInterval(this.timerUpdateInterval)
-
-      // Update timer text every second
-      this.timerUpdateInterval = setInterval(async () => {
-        const remainingMs = endTime - Date.now()
-        if (remainingMs <= 0) {
-          // Stop updates when time elapsed (will be handled by micMuteTimeout)
-          clearInterval(this.timerUpdateInterval)
-          this.timerUpdateInterval = null
-          return
-        }
-
-        const minutes = Math.floor(remainingMs / 60000)
-        const seconds = Math.floor((remainingMs % 60000) / 1000)
-        const text = `Streamer is muted:\n${minutes.toString().padStart(2, '0')}:${seconds
-          .toString()
-          .padStart(2, '0')}`
-
-        for (const scene of this.OBS_SCENES) {
-          try {
-            const item = await this.getSceneItem(scene, timerSourceName)
-            if (item) {
-              await this.obs.call('SetInputSettings', {
-                inputName: timerSourceName,
-                inputSettings: { text }
-              })
-            }
-          } catch {}
-        }
-      }, 1000)
-
-      // Timer to unmute mic and hide timer
-      this.micMuteTimeout = setTimeout(async () => {
-        try {
-          // Stop updating timer
-          if (this.timerUpdateInterval) clearInterval(this.timerUpdateInterval)
-          this.timerUpdateInterval = null
-
-          // Unmute mic
-          await this.obs.call('SetInputMute', {
-            inputName: 'Mic/Aux',
-            inputMuted: false
-          })
-          logColor('green', '[OBS] 🎙️ Mic unmuted')
-
-          // Hide timer source
-          for (const scene of this.OBS_SCENES) {
-            try {
-              const item = await this.getSceneItem(scene, timerSourceName)
-              if (item) {
-                await this.obs.call('SetSceneItemEnabled', {
-                  sceneName: scene,
-                  sceneItemId: item.sceneItemId,
-                  sceneItemEnabled: false
-                })
-              }
-            } catch {}
-          }
-
-          this.micMuteTimeout = null
-        } catch (err) {
-          logColor('red', `[OBS] Failed to unmute mic: ${err?.message || err}`)
-        }
-      }, durationMs)
-    } catch (err) {
-      logColor('red', `[OBS] Failed to mute mic: ${err?.message || err}`)
-    }
-  }
 }
 
 module.exports = new OBSController()

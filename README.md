@@ -27,7 +27,7 @@ A Twitch + Kick + Discord bot built in Node.js with a web interface, OBS integra
 
 ### Discord Integration
 - **Slash commands** — `/ping`, `/coinflip`, `/say`
-- **Chat bridge** — forwards Discord messages to Twitch chat
+- **Chat bridge** — bidirectional Discord ↔ Twitch/Kick bridge with per-user webhook avatars
 - **Go-live announcements** — `@everyone` notification when the stream starts
 
 ### Points Economy
@@ -89,7 +89,7 @@ See **[DEPLOYMENT.md](DEPLOYMENT.md)** for the full setup guide covering Twitch 
 - **OBS** — [obs-websocket-js](https://github.com/obs-websocket-community-projects/obs-websocket-js)
 - **Player / Chat client** — Electron (buildable as standalone `.exe` with electron-builder)
 - **Storage** — flat JSON files in `data/` (no database required)
-- **APIs** — Twitch Helix, Kick API v1, YouTube Data v3
+- **APIs** — Twitch Helix, Kick API v1, Discord Webhooks, YouTube Data v3
 
 ## Repository Layout
 
@@ -100,7 +100,7 @@ StreamerStalker/
 │   ├── server.js                     # Express server
 │   ├── config/                       # Environment, settings, timers, tokens
 │   ├── integrations/
-│   │   ├── twitch/                   # Commands, rewards, timers, emotes, badges
+│   │   ├── twitch/                   # Commands, timers, emotes, badges
 │   │   ├── kick/                     # Chat listener, send, auth, moderation
 │   │   ├── discord/                  # Slash commands and chat bridge
 │   │   ├── obs/                      # OBS WebSocket controller

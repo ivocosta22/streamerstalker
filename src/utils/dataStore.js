@@ -3,8 +3,8 @@ const path = require('path')
 
 // Overridable so test runs can point at a scratch directory instead of writing
 // balances, timers and custom commands into the live bot's state.
-const DATA_DIR = process.env.SURFERSTALKER_DATA_DIR
-  ? path.resolve(process.env.SURFERSTALKER_DATA_DIR)
+const DATA_DIR = process.env.STREAMERSTALKER_DATA_DIR
+  ? path.resolve(process.env.STREAMERSTALKER_DATA_DIR)
   : path.resolve(__dirname, '../../data')
 
 const cache = new Map()
