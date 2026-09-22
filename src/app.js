@@ -17,6 +17,9 @@
 // ============================================================
 // System Initialization
 // ============================================================
+if (typeof globalThis.WebSocket === 'undefined') {
+  globalThis.WebSocket = require('ws')
+}
 const { logColor } = require('./utils/logger')
 logColor('cyan', '[SYSTEM] 👓 StreamerStalker is starting...')
 

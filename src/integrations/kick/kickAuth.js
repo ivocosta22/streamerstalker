@@ -1,6 +1,6 @@
 const crypto = require('crypto')
 const { logColor } = require('../../utils/logger')
-const { kick, server } = require('../../config/env')
+const { kick, server, web } = require('../../config/env')
 const dataStore = require('../../utils/dataStore')
 
 const TOKEN_STORE = 'kick-tokens'
@@ -13,6 +13,7 @@ let pendingState = null
 let refreshTimer = null
 
 function redirectUri() {
+  if (web.publicUrl) return `${web.publicUrl}/kick/callback`
   const port = Number(process.env.PORT) || server.port || 3000
   return `http://localhost:${port}/kick/callback`
 }

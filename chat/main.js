@@ -4,6 +4,7 @@ const fs = require('fs')
 // In a built app, .env is bundled as an extraResource.
 // In dev, it's in the parent directory.
 const envPaths = [
+  path.join(path.dirname(process.execPath), '.env'),
   path.join(process.resourcesPath || '', '.env'),
   path.resolve(__dirname, '..', '.env')
 ]
