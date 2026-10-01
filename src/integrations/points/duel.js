@@ -14,7 +14,7 @@ function challenge(challenger, targetRaw, amountInput) {
   const currency = points.getCurrencyName()
   const challengerName = points.displayName(challenger)
 
-  if (!targetRaw || !amountInput) return `@${challengerName} usage: !duel <user> <amount>`
+  if (!targetRaw || !amountInput) return `@${challengerName} usage: !duel (user) (amount)`
 
   const target = String(targetRaw).replace(/^@/, '')
   const targetName = points.displayName(target)

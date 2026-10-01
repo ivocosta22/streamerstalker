@@ -106,6 +106,10 @@ module.exports = Object.freeze({
     reconnectIntervalMs: requireEnvNumber('OBS_AUTO_RECONNECT_TIME')
   }),
 
+  player: Object.freeze({
+    urls: (process.env.PLAYER_WS_URL || 'ws://localhost:9001').split(',').map(u => u.trim()).filter(Boolean)
+  }),
+
   server: Object.freeze({
     port: requireEnvNumber('SERVER_PORT')
   }),

@@ -9,3 +9,4 @@ twitch-user-tokens.json
 scripts.txt
 data/
 TODO.md
+*.DS_Store

@@ -31,7 +31,7 @@ function spin(user, amountArg) {
   const balance = points.getBalance(user)
 
   if (!amountArg) {
-    return `@${name} usage: !slots <amount> (min ${points.format(minBet)} ${currency})`
+    return `@${name} usage: !slots (amount) — min ${points.format(minBet)} ${currency}`
   }
 
   const bet = points.parseAmount(amountArg, balance)

@@ -13,7 +13,7 @@ const GLOBAL_TIMER_COOLDOWN_MS = 5 * 60 * 1000
 
 let timers = []
 let lastGlobalSend = 0
-let chatTimestamps = []
+let chatTimestamps = { twitch: [], kick: [] }
 let isLive = false
 let wasLive = false
 let _say = null
@@ -43,19 +43,30 @@ function loadTimers() {
   }
 }
 
-function recentChatLines() {
+function recentChatLines(platform) {
   const cutoff = Date.now() - CHAT_COUNT_WINDOW_MS
-  chatTimestamps = chatTimestamps.filter(ts => ts > cutoff)
-  return chatTimestamps.length
+  if (platform) {
+    chatTimestamps[platform] = (chatTimestamps[platform] || []).filter(ts => ts > cutoff)
+    return chatTimestamps[platform].length
+  }
+  let total = 0
+  for (const p of Object.keys(chatTimestamps)) {
+    chatTimestamps[p] = chatTimestamps[p].filter(ts => ts > cutoff)
+    total += chatTimestamps[p].length
+  }
+  return total
 }
 
-function recordChatLine() {
-  chatTimestamps.push(Date.now())
+function recordChatLine(platform = 'twitch') {
+  if (!chatTimestamps[platform]) chatTimestamps[platform] = []
+  chatTimestamps[platform].push(Date.now())
 }
 
 function checkTimers() {
   const now = Date.now()
-  const lines = recentChatLines()
+  const twitchLines = recentChatLines('twitch')
+  const kickLines = recentChatLines('kick')
+  const totalLines = twitchLines + kickLines
 
   if (now - lastGlobalSend < GLOBAL_TIMER_COOLDOWN_MS) return
 
@@ -64,7 +75,7 @@ function checkTimers() {
     const intervalMs = (isLive ? timer.onlineIntervalMinutes : timer.offlineIntervalMinutes) * 60 * 1000
     if (intervalMs <= 0) continue
     if (now - timer.lastSent < intervalMs) continue
-    if (lines < (timer.chatLinesRequired || 0)) continue
+    if (totalLines < (timer.chatLinesRequired || 0)) continue
     eligible.push(timer)
   }
 
@@ -85,9 +96,15 @@ function checkTimers() {
   lastGlobalSend = now
 
   const target = timer.target || 'both'
-  if (target === 'twitch' || target === 'both') _say(msg)
-  if ((target === 'kick' || target === 'both') && _kickSay) _kickSay(msg)
-  _logColor('cyan', `[SYSTEM] Sent timer "${timer.name}" → ${target}: ${msg}`)
+  const required = timer.chatLinesRequired || 0
+  const sendTwitch = (target === 'twitch' || target === 'both') && (required === 0 || twitchLines > 0)
+  const sendKick = (target === 'kick' || target === 'both') && _kickSay && (required === 0 || kickLines > 0)
+
+  if (sendTwitch) _say(msg)
+  if (sendKick) _kickSay(msg)
+
+  const sent = [sendTwitch && 'twitch', sendKick && 'kick'].filter(Boolean).join('+') || 'none'
+  _logColor('cyan', `[SYSTEM] Sent timer "${timer.name}" → ${sent}: ${msg}`)
 }
 
 async function announceGoLive() {

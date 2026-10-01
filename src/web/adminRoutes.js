@@ -316,6 +316,8 @@ function render() {
   // Blank when the .env value is in use, so the fallback option stays selected.
   document.getElementById('timezone').value =
     state.timezone === state.envTimezone ? '' : state.timezone;
+  document.getElementById('overlayFade').checked = !!state.overlayFadeEnabled;
+  document.getElementById('overlayFadeSeconds').value = state.overlayFadeSeconds || 30;
   renderModules();
   renderCommands();
   renderCustom();
@@ -353,6 +355,18 @@ document.addEventListener('DOMContentLoaded', function () {
     var tz = document.getElementById('timezone');
     api('POST', '/api/admin/settings', { timeTemplate: el.value, timezone: tz.value })
       .then(function (r) { flash(el); flash(tz); toast('!time now says: ' + r.preview); })
+      .catch(function (e) { toast(e.message, true); });
+  });
+
+  document.getElementById('saveOverlay').addEventListener('click', function () {
+    var enabled = document.getElementById('overlayFade').checked;
+    var seconds = Number(document.getElementById('overlayFadeSeconds').value) || 30;
+    api('POST', '/api/admin/settings/overlay', { overlayFadeEnabled: enabled, overlayFadeSeconds: seconds })
+      .then(function (r) {
+        state.overlayFadeEnabled = r.overlayFadeEnabled;
+        state.overlayFadeSeconds = r.overlayFadeSeconds;
+        toast('Overlay settings saved — refresh the browser source in OBS');
+      })
       .catch(function (e) { toast(e.message, true); });
   });
 
@@ -456,6 +470,25 @@ function dashboardBody() {
           Placeholders: <code>{time}</code>, <code>{streamer}</code>, <code>{timezone}</code>
         </span>
         <button id="saveTime">Save</button>
+      </div>
+    </div>
+
+    <h2>Chat overlay</h2>
+    <div class="card">
+      <div class="row" style="gap:12px;align-items:center">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600;font-size:14px">
+          <input type="checkbox" id="overlayFade" style="width:18px;height:18px" />
+          Fade out messages after
+        </label>
+        <div class="field" style="flex:0 0 80px;margin:0">
+          <input type="number" id="overlayFadeSeconds" min="5" max="300" value="30" style="text-align:center" />
+        </div>
+        <span style="font-size:14px;font-weight:600">seconds</span>
+        <button id="saveOverlay" style="margin-left:auto">Save</button>
+      </div>
+      <div class="muted" style="font-size:12.5px;margin-top:8px">
+        When enabled, messages in the OBS chat overlay will fade out and disappear after the set time.
+        Refresh the browser source in OBS after saving for it to take effect.
       </div>
     </div>
 
@@ -648,6 +681,8 @@ function createAdminRouter() {
       timeTemplate: settings.get('timeTemplate'),
       timezone: settings.timezone(),
       envTimezone: streamer.timezone,
+      overlayFadeEnabled: settings.get('overlayFadeEnabled'),
+      overlayFadeSeconds: settings.get('overlayFadeSeconds'),
       timers: chatTimers.getTimers(),
       modules: modules.getAll(),
       commands: BUILT_IN.map(name => ({
@@ -765,6 +800,19 @@ function createAdminRouter() {
     })
   })
 
+  router.post('/api/admin/settings/overlay', auth.requireAdmin, (req, res) => {
+    if (!wantsJson(req, res)) return
+    const enabled = !!req.body?.overlayFadeEnabled
+    const seconds = Math.floor(Number(req.body?.overlayFadeSeconds))
+    if (!Number.isFinite(seconds) || seconds < 5 || seconds > 300) {
+      return res.status(400).json({ error: 'fade time must be between 5 and 300 seconds' })
+    }
+    settings.set('overlayFadeEnabled', enabled)
+    settings.set('overlayFadeSeconds', seconds)
+    logColor('green', `[SYSTEM] Chat overlay fade ${enabled ? `enabled (${seconds}s)` : 'disabled'} from the dashboard`)
+    res.json({ overlayFadeEnabled: enabled, overlayFadeSeconds: seconds })
+  })
+
   router.post('/api/admin/timers', auth.requireAdmin, (req, res) => {
     if (!wantsJson(req, res)) return
     const result = chatTimers.saveTimers(req.body?.timers)
@@ -796,6 +844,25 @@ function createAdminRouter() {
 
     logColor('green', `[SYSTEM] ${mode} ${amount} ${points.getCurrencyName()} for ${user} from the dashboard`)
     res.json({ user, balance: points.format(balance) })
+  })
+
+  router.post('/api/admin/exclusions', auth.requireAdmin, (req, res) => {
+    if (!wantsJson(req, res)) return
+    const username = String(req.body?.username ?? '').trim()
+    const platform = String(req.body?.platform ?? 'twitch')
+    if (!username) return res.status(400).json({ error: 'username is required' })
+    if (!['twitch', 'kick'].includes(platform)) return res.status(400).json({ error: 'platform must be twitch or kick' })
+    const result = points.addExclusion(username, platform)
+    if (!result.added) return res.status(409).json({ error: `${result.key} is already excluded` })
+    logColor('green', `[SYSTEM] Excluded ${result.key} from the leaderboard`)
+    res.json({ key: result.key })
+  })
+
+  router.delete('/api/admin/exclusions/:key', auth.requireAdmin, (req, res) => {
+    const key = req.params.key
+    if (!points.removeExclusion(key)) return res.status(404).json({ error: 'exclusion not found' })
+    logColor('green', `[SYSTEM] Removed leaderboard exclusion for ${key}`)
+    res.json({ removed: true })
   })
 
   // ---- log stream ----

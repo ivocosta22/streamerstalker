@@ -1,15 +1,16 @@
-const PLAYER_URL = 'ws://localhost:9001'
-const RECONNECT_MIN_MS = 1000
-const RECONNECT_MAX_MS = 10000
+const { player: playerConfig } = require('../../config/env')
+
+const RECONNECT_MS = 60000
 
 let socket = null
 let ready = false
+let connectedUrl = null
 let requestsEnabled = true
 let currentSong = null   // { title, url, requester } — pushed by player on track change
 let backupPlaylistUrl = null
 let _logColor = () => {}
 let _onRequestsToggled = null
-let _reconnectDelay = RECONNECT_MIN_MS
+
 
 // Mirror of the player's own state, refreshed by every status frame. The web
 // player page renders from this, so it stays a plain snapshot with no methods.
@@ -50,11 +51,47 @@ function onStateChange(fn) {
 // FIFO queue of callbacks waiting for a WS response (enqueue ack)
 const pendingCallbacks = []
 
-function connect() {
+function tryNextUrl(urls, index) {
+  if (index >= urls.length) return Promise.resolve(null)
+
+  return new Promise((resolve) => {
+    const url = urls[index]
+    const ws = new WebSocket(url)
+    const timeout = setTimeout(() => {
+      try { ws.close() } catch {}
+      resolve(tryNextUrl(urls, index + 1))
+    }, 3000)
+
+    ws.onopen = () => {
+      clearTimeout(timeout)
+      resolve({ ws, url })
+    }
+    ws.onerror = () => {
+      clearTimeout(timeout)
+      try { ws.close() } catch {}
+      resolve(tryNextUrl(urls, index + 1))
+    }
+  })
+}
+
+async function connect() {
   if (socket) return
 
-  const ws = new WebSocket(PLAYER_URL)
+  const result = await tryNextUrl(playerConfig.urls, 0)
+
+  if (!result) {
+    _logColor('red', '[PLAYER] Failed to connect to any player instance — retrying in 60s')
+    setTimeout(connect, RECONNECT_MS)
+    return
+  }
+
+  const ws = result.ws
+  connectedUrl = result.url
   socket = ws
+  ready = true
+  publishState()
+  _logColor('green', `[PLAYER] Connected to song request player (${connectedUrl})`)
+
   let reconnectScheduled = false
 
   function scheduleReconnect() {
@@ -63,23 +100,15 @@ function connect() {
     const wasReady = ready
     ready = false
     socket = null
+    connectedUrl = null
     currentSong = null
     backupPlaylistUrl = null
     mirror = { ...mirror, connected: false, current: null, queue: [], backupMode: false }
     publishState()
     if (wasReady) {
-      _reconnectDelay = RECONNECT_MIN_MS
-      _logColor('yellow', '[PLAYER] ⚠️ Player disconnected — will retry')
+      _logColor('yellow', '[PLAYER] Player disconnected — retrying in 60s')
     }
-    setTimeout(connect, _reconnectDelay)
-    _reconnectDelay = Math.min(_reconnectDelay * 2, RECONNECT_MAX_MS)
-  }
-
-  ws.onopen = () => {
-    ready = true
-    _reconnectDelay = RECONNECT_MIN_MS
-    publishState()
-    _logColor('green', '[PLAYER] ✅ Connected to song request player')
+    setTimeout(connect, RECONNECT_MS)
   }
 
   ws.onmessage = (event) => {
@@ -97,8 +126,6 @@ function connect() {
         if ('current' in msg) currentSong = msg.current
         if ('backupPlaylistUrl' in msg) backupPlaylistUrl = msg.backupPlaylistUrl || null
 
-        // Fields below arrive only from a player new enough to send them, so
-        // each is merged individually rather than replacing the whole mirror.
         mirror = {
           ...mirror,
           connected: true,
@@ -114,12 +141,11 @@ function connect() {
 
         if (mirror.legacy && !warnedLegacy) {
           warnedLegacy = true
-          _logColor('yellow', '[PLAYER] ⚠️ The player app predates the web player page — rebuild it (npm start in player/) for the queue and controls to work')
+          _logColor('yellow', '[PLAYER] The player app predates the web player page — rebuild it (npm start in player/) for the queue and controls to work')
         }
         publishState()
         return
       }
-      // Any non-status message is an ack for a pending enqueue
       if (pendingCallbacks.length > 0) {
         const cb = pendingCallbacks.shift()
         cb(msg)

@@ -15,7 +15,7 @@ function offlineNote() {
  */
 function showEmote(user, name) {
   if (!modules.isEnabled('emotes')) return `The emotes module is currently disabled.`
-  if (!name) return `@${user} usage: !showemote <emote>`
+  if (!name) return `@${user} usage: !showemote (emote)`
 
   const emote = emotes.find(name)
   if (!emote) {

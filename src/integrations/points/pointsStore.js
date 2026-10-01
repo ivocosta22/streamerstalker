@@ -1,14 +1,52 @@
 const dataStore = require('../../utils/dataStore')
-const { twitch } = require('../../config/env')
+const { twitch, streamer } = require('../../config/env')
 
 const STORE_NAME = 'points'
 
 // The broadcaster and the bot both accumulate a balance from chatting, and
 // neither competing with viewers on the leaderboard is interesting.
-const HIDDEN_FROM_LEADERBOARD = new Set([
+const kickSlug = (streamer.kickChannelUrl.match(/kick\.com\/([A-Za-z0-9_-]+)/) || [])[1]
+const BUILTIN_HIDDEN = new Set([
   twitch.channel.toLowerCase(),
-  twitch.botUsername.toLowerCase()
+  twitch.botUsername.toLowerCase(),
+  `kick:${twitch.botUsername.toLowerCase()}`,
+  'streamelements',
+  'kick:streamelements',
+  ...(kickSlug ? [`kick:${kickSlug.toLowerCase()}`] : [])
 ])
+
+const EXCLUSIONS_STORE = 'leaderboard-exclusions'
+
+function loadExclusions() {
+  return dataStore.load(EXCLUSIONS_STORE, [])
+}
+
+function isHiddenFromLeaderboard(k) {
+  if (BUILTIN_HIDDEN.has(k)) return true
+  return loadExclusions().includes(k)
+}
+
+function getExclusions() {
+  return loadExclusions()
+}
+
+function addExclusion(username, platform) {
+  const k = platform === 'kick' ? `kick:${username.toLowerCase()}` : username.toLowerCase()
+  const list = loadExclusions()
+  if (list.includes(k) || BUILTIN_HIDDEN.has(k)) return { added: false, key: k }
+  list.push(k)
+  dataStore.save(EXCLUSIONS_STORE, list)
+  return { added: true, key: k }
+}
+
+function removeExclusion(key) {
+  const list = loadExclusions()
+  const idx = list.indexOf(key)
+  if (idx === -1) return false
+  list.splice(idx, 1)
+  dataStore.save(EXCLUSIONS_STORE, list)
+  return true
+}
 
 // Shape is repaired on every read so a hand-edited file can never crash a command.
 function loadData() {
@@ -124,7 +162,7 @@ function displayName(user) {
 function leaderboard(limit = 5) {
   const data = loadData()
   return Object.entries(data.balances)
-    .filter(([k, amount]) => amount > 0 && !HIDDEN_FROM_LEADERBOARD.has(k))
+    .filter(([k, amount]) => amount > 0 && !isHiddenFromLeaderboard(k))
     .sort((a, b) => b[1] - a[1])
     .slice(0, limit)
     .map(([k, amount]) => ({ key: k, name: data.names[k] || cleanName(k), amount, platform: k.startsWith('kick:') ? 'kick' : 'twitch' }))
@@ -167,5 +205,8 @@ module.exports = {
   displayName,
   leaderboard,
   parseAmount,
-  format
+  format,
+  getExclusions,
+  addExclusion,
+  removeExclusion
 }

@@ -103,7 +103,7 @@ if (kick.clientId && !kickAuth.isAuthorized()) {
 }
 
 kickChat.setOnMessage(({ user, message, isMod, isBroadcaster, userId }) => {
-  recordChatLine()
+  recordChatLine('kick')
   pointsAccrual.recordActivity(user, 'kick')
 
   botState.commandCaller = user
@@ -285,6 +285,21 @@ startChatTimers({
   },
   logColor
 })
+// Channel point redemptions without text — these never appear in the message event
+ComfyJS.onReward = (user, reward, cost, message, extra) => {
+  chatBus.pushEntry({
+    platform: 'twitch',
+    user,
+    userId: extra?.userId || null,
+    color: null,
+    message: message || '',
+    highlight: 'reward',
+    highlightLabel: `Redeemed ${reward} (${cost.toLocaleString('en-US')})`,
+    timestamp: Date.now()
+  })
+  logColor('cyan', `[TWITCH] ${user} redeemed "${reward}" (${cost}) ${message ? `— "${message}"` : ''}`)
+}
+
 ComfyJS.onRaid = async (user, viewers) => {
   try {
     const raider = user?.trim()
@@ -331,7 +346,8 @@ twitchChatClient.on('message', async (target, context, msg, self) => {
 
   if (self || botState.commandCaller === twitch.botUsername) return
 
-  chatBus.push(context, msg)
+  const highlight = context['custom-reward-id'] ? 'reward' : null
+  chatBus.push(context, msg, 'twitch', { highlight })
 
   if (botState.commandCaller === 'StreamElements') {
     logColor('default', `[TWITCH] ${botState.commandCaller}: ${msg}`)
@@ -339,7 +355,7 @@ twitchChatClient.on('message', async (target, context, msg, self) => {
   }
 
   logColor('default', `[TWITCH] ${botState.commandCaller}: ${msg}`)
-  recordChatLine()
+  recordChatLine('twitch')
   pointsAccrual.recordActivity(displayName)
 
   const message = msg.trim()
@@ -363,6 +379,39 @@ twitchChatClient.on('message', async (target, context, msg, self) => {
 // Connect Twitch IRC client
 // Required for receiving chat events and processing commands
 // ============================================================
+// Watch streaks, viewer milestones, and any other usernotice types tmi.js
+// does not have a dedicated event for land here.
+twitchChatClient.on('usernotice', (msgid, channel, tags, msg) => {
+  const user = tags['display-name'] || tags.login || 'unknown'
+  const systemMsg = tags['system-msg'] || ''
+
+  chatBus.push(tags, msg || '', 'twitch', {
+    highlight: 'milestone',
+    highlightLabel: systemMsg.replace(/\\s/g, ' ')
+  })
+  logColor('cyan', `[TWITCH] Usernotice (${msgid}) from ${user}: ${systemMsg}`)
+})
+
+// Resubs — already handled by tmi.js's dedicated event
+twitchChatClient.on('resub', (channel, username, streakMonths, msg, tags) => {
+  const systemMsg = tags['system-msg'] || `${username} resubscribed`
+  chatBus.push(tags, msg || '', 'twitch', {
+    highlight: 'milestone',
+    highlightLabel: systemMsg.replace(/\\s/g, ' ')
+  })
+  logColor('cyan', `[TWITCH] Resub from ${username} (${streakMonths} month streak): ${msg || '(no message)'}`)
+})
+
+// New subs
+twitchChatClient.on('subscription', (channel, username, methods, msg, tags) => {
+  const systemMsg = tags['system-msg'] || `${username} subscribed`
+  chatBus.push(tags, msg || '', 'twitch', {
+    highlight: 'milestone',
+    highlightLabel: systemMsg.replace(/\\s/g, ' ')
+  })
+  logColor('cyan', `[TWITCH] New sub from ${username}`)
+})
+
 twitchChatClient.connect().catch(err => {
   const msg = typeof err === 'string' ? err : (err?.message || JSON.stringify(err))
   logColor('red', `[TWITCH] ❌ tmi.js connection failed: ${msg}`)

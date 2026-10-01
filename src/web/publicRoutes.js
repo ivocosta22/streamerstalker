@@ -138,7 +138,7 @@ function leaderboardBody(isAdmin) {
     <h2>Not shown publicly</h2>
     <div class="card" style="padding:0"><div class="scroll"><table>
       <tbody>${hidden.map(b => `<tr>
-        <td>${esc(b.name)}</td>
+        <td>${b.platform === 'kick' ? KICK_PILL + ' ' : ''}${esc(b.name)}</td>
         <td class="amount">${esc(points.format(b.amount))}</td>
         ${removeButton(b.key, b.name)}
       </tr>`).join('')}</tbody>
@@ -147,27 +147,92 @@ function leaderboardBody(isAdmin) {
       Zero balances, plus the broadcaster and bot accounts, which are always excluded.
     </div>`
 
-  return board + hiddenSection
+  const exclusions = points.getExclusions()
+  const exclusionRows = exclusions.length === 0
+    ? '<tr><td class="muted" colspan="3">No custom exclusions.</td></tr>'
+    : exclusions.map(k => {
+        const platform = k.startsWith('kick:') ? 'kick' : 'twitch'
+        const name = k.replace(/^kick:/, '')
+        return `<tr>
+          <td>${esc(name)}</td>
+          <td>${platform === 'kick' ? KICK_PILL : '<span class="chip">Twitch</span>'}</td>
+          <td style="width:1%"><button type="button" class="danger" data-unexclude="${esc(k)}">Remove</button></td>
+        </tr>`
+      }).join('')
+
+  const exclusionSection = `
+    <h2>Leaderboard exclusions</h2>
+    <div class="card" style="padding:0;margin-bottom:12px"><div class="scroll"><table>
+      <thead><tr><th>Username</th><th>Platform</th><th></th></tr></thead>
+      <tbody id="exclusionList">${exclusionRows}</tbody>
+    </table></div></div>
+    <div class="card row" style="gap:10px;align-items:flex-end">
+      <div class="field" style="flex:1 1 200px;margin:0">
+        <label for="exclUser">Username</label>
+        <input type="text" id="exclUser" placeholder="username" />
+      </div>
+      <div class="field" style="flex:0 0 120px;margin:0">
+        <label for="exclPlatform">Platform</label>
+        <select id="exclPlatform" style="font:inherit;font-size:14px;padding:9px 12px;border-radius:8px;
+          border:1px solid var(--border);background:var(--bg);color:var(--text);width:100%">
+          <option value="twitch">Twitch</option>
+          <option value="kick">Kick</option>
+        </select>
+      </div>
+      <button type="button" id="addExclusion" class="primary">Exclude</button>
+    </div>
+    <div class="sub" style="margin-top:10px">
+      Excluded users still earn points but don't appear on the public leaderboard.
+      The broadcaster, bot, and StreamElements are always excluded automatically.
+    </div>`
+
+  return board + hiddenSection + exclusionSection
 }
 
 const LEADERBOARD_ADMIN_JS = `
   document.addEventListener('click', function (e) {
     var btn = e.target.closest('[data-remove]');
-    if (!btn) return;
-    var name = btn.dataset.name;
-    if (!confirm('Remove ' + name + ' from the ledger entirely?')) return;
+    if (btn) {
+      var name = btn.dataset.name;
+      if (!confirm('Remove ' + name + ' from the ledger entirely?')) return;
+      btn.disabled = true;
+      fetch('/api/admin/points/' + encodeURIComponent(btn.dataset.remove), { method: 'DELETE' })
+        .then(function (res) {
+          if (!res.ok) throw new Error('could not remove ' + name);
+          btn.closest('tr').parentNode.removeChild(btn.closest('tr'));
+        })
+        .catch(function (err) { btn.disabled = false; alert(err.message); });
+      return;
+    }
 
-    btn.disabled = true;
-    fetch('/api/admin/points/' + encodeURIComponent(btn.dataset.remove), { method: 'DELETE' })
+    var unexcl = e.target.closest('[data-unexclude]');
+    if (unexcl) {
+      unexcl.disabled = true;
+      fetch('/api/admin/exclusions/' + encodeURIComponent(unexcl.dataset.unexclude), { method: 'DELETE' })
+        .then(function (res) {
+          if (!res.ok) return res.json().then(function (d) { throw new Error(d.error); });
+          location.reload();
+        })
+        .catch(function (err) { unexcl.disabled = false; alert(err.message); });
+    }
+  });
+
+  var addBtn = document.getElementById('addExclusion');
+  if (addBtn) addBtn.addEventListener('click', function () {
+    var user = document.getElementById('exclUser').value.trim();
+    var platform = document.getElementById('exclPlatform').value;
+    if (!user) return;
+    addBtn.disabled = true;
+    fetch('/api/admin/exclusions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: user, platform: platform })
+    })
       .then(function (res) {
-        if (!res.ok) throw new Error('could not remove ' + name);
-        var row = btn.closest('tr');
-        row.parentNode.removeChild(row);
+        if (!res.ok) return res.json().then(function (d) { throw new Error(d.error); });
+        location.reload();
       })
-      .catch(function (err) {
-        btn.disabled = false;
-        alert(err.message);
-      });
+      .catch(function (err) { addBtn.disabled = false; alert(err.message); });
   });
 `
 

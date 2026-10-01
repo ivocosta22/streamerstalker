@@ -13,7 +13,7 @@ function gamble(user, amountInput) {
   const currency = points.getCurrencyName()
   const name = points.displayName(user)
 
-  if (!amountInput) return `@${name} usage: !gamble <amount | 50% | all>`
+  if (!amountInput) return `@${name} usage: !gamble (amount | 50% | all)`
 
   const now = Date.now()
   const readyAt = (lastGamble.get(user.toLowerCase()) || 0) + cfg.cooldownSeconds * 1000

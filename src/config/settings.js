@@ -17,7 +17,9 @@ const DEFAULTS = Object.freeze({
   timeTemplate: "It's currently {time} in {streamer}'s timezone.",
   // Empty means "fall back to STREAMER_TIMEZONE from .env", so setting one here
   // is an override rather than a second place the value has to be kept in sync.
-  timezone: ''
+  timezone: '',
+  overlayFadeEnabled: false,
+  overlayFadeSeconds: 30
 })
 
 /** Placeholders the dashboard advertises, and what fills them. */

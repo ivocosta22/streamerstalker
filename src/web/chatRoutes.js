@@ -5,6 +5,7 @@ const emoteResolver = require('../integrations/twitch/emoteResolver')
 const { twitch, kick, chat: chatConfig } = require('../config/env')
 const { getToken } = require('../integrations/twitch/twitchAPI')
 const kickAuth = require('../integrations/kick/kickAuth')
+const settings = require('../config/settings')
 
 const TWITCH_ICON = '<svg style="width:18px;height:18px;vertical-align:middle;margin-right:4px" viewBox="0 0 2400 2800"><g fill="#9146ff"><path fill-rule="evenodd" d="M500,0L0,500v1800h600v500l500-500h400l900-900V0H500z M2200,1300l-400,400h-400l-350,350v-350H600V200h1600V1300z"/><rect x="1700" y="550" width="200" height="600"/><rect x="1150" y="550" width="200" height="600"/></g></svg>'
 const KICK_ICON = '<svg style="width:18px;height:18px;vertical-align:middle;margin-right:4px" viewBox="0 0 64 64"><path fill="#53fc18" d="M4 6h16v16h6V14h6V6h20v16h-6v8h-6v8h6v8h6v16H32v-8h-6v-8h-6v16H4z"/></svg>'
@@ -29,6 +30,12 @@ const MOD_STYLE = `
   .mod-btns{display:none;position:absolute;right:4px;top:50%;transform:translateY(-50%);
     gap:3px;background:var(--surface);padding:2px 4px;border-radius:6px;border:1px solid var(--border);z-index:2}
   .chat-line:hover .mod-btns{display:inline-flex}
+  .chat-ts{color:var(--muted);font-size:11px;margin-right:6px;font-variant-numeric:tabular-nums}
+  .chat-line.hl-reward{background:rgba(145,70,255,.13);border-left:3px solid #9146ff;padding-left:8px}
+  .chat-line.hl-milestone{background:rgba(0,184,132,.13);border-left:3px solid #00b884;padding-left:8px}
+  .hl-label{display:block;font-size:11px;font-weight:600;margin-bottom:2px;letter-spacing:.3px}
+  .hl-reward .hl-label{color:#9146ff}
+  .hl-milestone .hl-label{color:#00b884}
   .mod-btn{font:inherit;font-size:11px;font-weight:600;padding:2px 7px;border-radius:4px;
     border:1px solid var(--border);background:var(--surface-2);color:var(--muted);cursor:pointer;white-space:nowrap}
   .mod-btn:hover{border-color:var(--accent);color:var(--text)}
@@ -109,30 +116,42 @@ const CHAT_JS = `
       '</span>';
   }
 
+  function fmtTime(ts) {
+    if (!ts) return '';
+    var d = new Date(ts);
+    var h = d.getHours().toString().padStart(2, '0');
+    var m = d.getMinutes().toString().padStart(2, '0');
+    return '<span class="chat-ts">' + h + ':' + m + '</span>';
+  }
+
   function renderMsg(entry) {
     if (entry.platform === 'system') {
       var sys = document.createElement('div');
       sys.style.cssText = 'padding:4px 0;color:var(--muted);font-style:italic;font-size:13px';
-      sys.textContent = entry.message;
+      sys.innerHTML = fmtTime(entry.timestamp) + escHtml(entry.message);
       return sys;
     }
 
     var row = document.createElement('div');
-    row.className = 'chat-line';
+    row.className = 'chat-line' + (entry.highlight ? ' hl-' + entry.highlight : '');
     row.dataset.platform = entry.platform || '';
     row.dataset.userId = entry.userId || '';
     row.dataset.msgId = entry.id || '';
     row.dataset.username = entry.user || '';
 
-    var html = platformBadge(entry.platform);
+    var html = '';
+    if (entry.highlightLabel) html += '<span class="hl-label">' + escHtml(entry.highlightLabel) + '</span>';
+    html += fmtTime(entry.timestamp) + platformBadge(entry.platform);
     if (entry.resolvedBadges) {
       entry.resolvedBadges.forEach(function (b) { html += badgeImg(b); });
     }
 
     var color = entry.color || '#efeff1';
     html += '<strong style="color:' + color + '">' + escHtml(entry.user) + '</strong>';
-    html += '<span style="color:var(--muted)">: </span>';
-    html += entry.parsedMessage ? renderSegments(entry.parsedMessage) : escHtml(entry.message);
+    if (entry.message) {
+      html += '<span style="color:var(--muted)">: </span>';
+      html += entry.parsedMessage ? renderSegments(entry.parsedMessage) : escHtml(entry.message);
+    }
     html += modBtns(entry);
     row.innerHTML = html;
     return row;
@@ -212,10 +231,14 @@ const CHAT_JS = `
 
 // OBS overlay page — standalone HTML, no layout wrapper, transparent background
 function chatOverlayPage(_req, res) {
-  res.send(OVERLAY_HTML)
+  const fadeEnabled = settings.get('overlayFadeEnabled')
+  const fadeSeconds = Number(settings.get('overlayFadeSeconds')) || 30
+  res.send(buildOverlayHtml(fadeEnabled, fadeSeconds))
 }
 
-const OVERLAY_HTML = `<!DOCTYPE html>
+function buildOverlayHtml(fadeEnabled, fadeSeconds) {
+  const fadeMs = fadeSeconds * 1000
+  return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
@@ -303,6 +326,11 @@ const OVERLAY_HTML = `<!DOCTYPE html>
     from { opacity: 0; transform: translateY(8px); }
     to { opacity: 1; transform: translateY(0); }
   }
+  @keyframes fadeOut {
+    from { opacity: 1; }
+    to { opacity: 0; }
+  }
+  .fading { animation: fadeOut 1s ease-out forwards; }
 </style>
 </head>
 <body>
@@ -369,6 +397,17 @@ function addMsg(entry) {
     box.appendChild(el);
   }
   while (box.childElementCount > MAX) box.removeChild(box.firstChild);
+  if (FADE_ENABLED) scheduleFade(el || sys);
+}
+
+var FADE_ENABLED = ${fadeEnabled ? 'true' : 'false'};
+var FADE_MS = ${fadeMs};
+function scheduleFade(el) {
+  if (!el) return;
+  setTimeout(function () {
+    el.classList.add('fading');
+    el.addEventListener('animationend', function () { el.remove(); });
+  }, FADE_MS);
 }
 
 var stream = new EventSource('/api/chat/overlay/stream');
@@ -378,6 +417,7 @@ stream.onmessage = function (msg) {
 </script>
 </body>
 </html>`
+}
 
 // Non-Twitch platforms resolve their own badges and emotes at push time.
 function enrich(entry) {
@@ -691,25 +731,37 @@ function modBtns(entry) {
     '</span>';
 }
 
+function fmtTime(ts) {
+  if (!ts) return '';
+  var d = new Date(ts);
+  var h = d.getHours().toString().padStart(2, '0');
+  var m = d.getMinutes().toString().padStart(2, '0');
+  return '<span class="chat-ts">' + h + ':' + m + '</span>';
+}
+
 function renderMsg(entry) {
   if (entry.platform === 'system') {
     var sys = document.createElement('div');
     sys.style.cssText = 'padding:4px 0;color:var(--muted);font-style:italic;font-size:13px';
-    sys.textContent = entry.message;
+    sys.innerHTML = fmtTime(entry.timestamp) + escHtml(entry.message);
     return sys;
   }
   var row = document.createElement('div');
-  row.className = 'chat-line';
+  row.className = 'chat-line' + (entry.highlight ? ' hl-' + entry.highlight : '');
   row.dataset.platform = entry.platform || '';
   row.dataset.userId = entry.userId || '';
   row.dataset.msgId = entry.id || '';
   row.dataset.username = entry.user || '';
-  var html = platformBadge(entry.platform);
+  var html = '';
+  if (entry.highlightLabel) html += '<span class="hl-label">' + escHtml(entry.highlightLabel) + '</span>';
+  html += fmtTime(entry.timestamp) + platformBadge(entry.platform);
   if (entry.resolvedBadges) entry.resolvedBadges.forEach(function (b) { html += badgeImg(b); });
   var color = entry.color || '#efeff1';
   html += '<strong style="color:' + color + '">' + escHtml(entry.user) + '</strong>';
-  html += '<span style="color:var(--muted)">: </span>';
-  html += entry.parsedMessage ? renderSegments(entry.parsedMessage) : escHtml(entry.message);
+  if (entry.message) {
+    html += '<span style="color:var(--muted)">: </span>';
+    html += entry.parsedMessage ? renderSegments(entry.parsedMessage) : escHtml(entry.message);
+  }
   html += modBtns(entry);
   row.innerHTML = html;
   return row;

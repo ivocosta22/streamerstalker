@@ -11,7 +11,7 @@ function publish(entry) {
   }
 }
 
-function push(context, message, platform = 'twitch') {
+function push(context, message, platform = 'twitch', extra = {}) {
   publish({
     id: context.id || context['msg-id'] || `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     platform,
@@ -26,6 +26,8 @@ function push(context, message, platform = 'twitch') {
     userId: context['user-id'] || null,
     message,
     emotes: context.emotes || null,
+    highlight: extra.highlight || null,
+    highlightLabel: extra.highlightLabel || null,
     timestamp: Date.now()
   })
 }
@@ -49,6 +51,8 @@ function pushEntry(entry) {
     parsedMessage: entry.parsedMessage || null,
     resolvedBadges: entry.resolvedBadges || null,
     profilePic: entry.profilePic || null,
+    highlight: entry.highlight || null,
+    highlightLabel: entry.highlightLabel || null,
     timestamp: entry.timestamp || Date.now()
   })
 }

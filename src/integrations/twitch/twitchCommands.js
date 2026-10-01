@@ -85,7 +85,10 @@ function createCommands(context) {
   // the !soundlist aliases.
   const playSoundCommand = (name) => overlayActions.playSound(botState.commandCaller, name)
 
-  const soundListCommand = () => overlayActions.listSounds()
+  const soundListCommand = () => {
+    if (web.publicUrl) return `All sounds: ${web.publicUrl}/sounds`
+    return overlayActions.listSounds()
+  }
 
   const soundVolCommand = (levelRaw) => {
     const caller = botState.commandCaller
@@ -179,7 +182,7 @@ function createCommands(context) {
   const srCommand = async (...args) => {
     const caller = botState.commandCaller
     const input = args.join(' ').trim()
-    if (!input) return `@${caller} usage: !sr <YouTube URL or song name>`
+    if (!input) return `@${caller} usage: !sr (YouTube URL or song name)`
     const { result, title, position } = await songRequestClient.enqueue(input, caller)
     if (result === 'queued') {
       const pos = position ? `at position #${position}` : 'to the queue'
@@ -229,7 +232,7 @@ function createCommands(context) {
   const addCommandCmd = (...args) => {
     const caller = botState.commandCaller
     if (!isPrivileged()) return `@${caller} only mods or the broadcaster can add commands.`
-    if (args.length < 2) return `@${caller} usage: !addcommand <name> <response>`
+    if (args.length < 2) return `@${caller} usage: !addcommand (name) (response)`
     const name = args[0].toLowerCase()
     const response = args.slice(1).join(' ')
     if (builtInNames.has(name)) return `@${caller} "${name}" is a built-in command and can't be overridden.`
@@ -249,7 +252,7 @@ function createCommands(context) {
   const deleteCommandCmd = (...args) => {
     const caller = botState.commandCaller
     if (!isPrivileged()) return `@${caller} only mods or the broadcaster can delete commands.`
-    if (args.length < 1) return `@${caller} usage: !deletecommand <name>`
+    if (args.length < 1) return `@${caller} usage: !deletecommand (name)`
     const name = args[0].toLowerCase()
     if (customCommands.remove(name)) {
       logColor('green', `[TWITCH] Custom command !${name} deleted by ${caller}`)
@@ -261,7 +264,7 @@ function createCommands(context) {
   const changeCommandCmd = (...args) => {
     const caller = botState.commandCaller
     if (!isPrivileged()) return `@${caller} only mods or the broadcaster can edit commands.`
-    if (args.length < 2) return `@${caller} usage: !changecommand <name> <new response>`
+    if (args.length < 2) return `@${caller} usage: !changecommand (name) (new response)`
     const name = args[0].toLowerCase()
     const response = args.slice(1).join(' ')
     if (customCommands.edit(name, response)) {
@@ -287,7 +290,7 @@ function createCommands(context) {
   const disableCommandCmd = (rawName) => {
     const caller = botState.commandCaller
     if (!isPrivileged()) return `@${caller} only mods or the broadcaster can disable commands.`
-    if (!rawName) return `@${caller} usage: !disablecommand <name>`
+    if (!rawName) return `@${caller} usage: !disablecommand (name)`
 
     const { error, name } = resolveBuiltIn(caller, rawName)
     if (error) return error
@@ -305,7 +308,7 @@ function createCommands(context) {
   const enableCommandCmd = (rawName) => {
     const caller = botState.commandCaller
     if (!isPrivileged()) return `@${caller} only mods or the broadcaster can enable commands.`
-    if (!rawName) return `@${caller} usage: !enablecommand <name>`
+    if (!rawName) return `@${caller} usage: !enablecommand (name)`
 
     const { error, name } = resolveBuiltIn(caller, rawName)
     if (error) return error
@@ -405,7 +408,7 @@ function createCommands(context) {
   const givePointsCommand = (targetRaw, amountRaw) => {
     const caller = botState.commandCaller
     if (!isPrivileged()) return `@${caller} only mods or the broadcaster can grant ${points.getCurrencyName()}.`
-    if (!targetRaw || !amountRaw) return `@${caller} usage: !givepoints <user> <amount>`
+    if (!targetRaw || !amountRaw) return `@${caller} usage: !givepoints (user) (amount)`
     const amount = Math.floor(Number(amountRaw))
     if (!Number.isFinite(amount) || amount <= 0) return `@${caller} "${amountRaw}" isn't a valid amount.`
     const key = userKey(targetRaw)
@@ -416,7 +419,7 @@ function createCommands(context) {
   const removePointsCommand = (targetRaw, amountRaw) => {
     const caller = botState.commandCaller
     if (!isPrivileged()) return `@${caller} only mods or the broadcaster can remove ${points.getCurrencyName()}.`
-    if (!targetRaw || !amountRaw) return `@${caller} usage: !removepoints <user> <amount>`
+    if (!targetRaw || !amountRaw) return `@${caller} usage: !removepoints (user) (amount)`
     const amount = Math.floor(Number(amountRaw))
     if (!Number.isFinite(amount) || amount <= 0) return `@${caller} "${amountRaw}" isn't a valid amount.`
     const key = userKey(targetRaw)
@@ -427,7 +430,7 @@ function createCommands(context) {
   const setPointsCommand = (targetRaw, amountRaw) => {
     const caller = botState.commandCaller
     if (!isPrivileged()) return `@${caller} only mods or the broadcaster can set ${points.getCurrencyName()}.`
-    if (!targetRaw || amountRaw === undefined) return `@${caller} usage: !setpoints <user> <amount>`
+    if (!targetRaw || amountRaw === undefined) return `@${caller} usage: !setpoints (user) (amount)`
     const amount = Math.floor(Number(amountRaw))
     if (!Number.isFinite(amount) || amount < 0) return `@${caller} "${amountRaw}" isn't a valid amount.`
     const key = userKey(targetRaw)
@@ -439,7 +442,7 @@ function createCommands(context) {
     const caller = botState.commandCaller
     if (!isPrivileged()) return `@${caller} only mods or the broadcaster can rename the currency.`
     const name = args.join(' ').trim()
-    if (!name) return `@${caller} usage: !setpointsname <name>`
+    if (!name) return `@${caller} usage: !setpointsname (name)`
     const previous = points.getCurrencyName()
     points.setCurrencyName(name)
     const alias = points.getCurrencyAlias()
@@ -456,11 +459,11 @@ function createCommands(context) {
   const moduleCommand = (action, name) => {
     const caller = botState.commandCaller
     if (!isPrivileged()) return `@${caller} only mods or the broadcaster can toggle modules.`
-    if (!action || !name) return `@${caller} usage: !module <enable|deactivate> <${modules.NAMES.join('|')}>`
+    if (!action || !name) return `@${caller} usage: !module (enable|disable) (${modules.NAMES.join('|')})`
     const verb = String(action).toLowerCase()
     const enable = verb === 'enable' || verb === 'activate' || verb === 'on'
     const disable = verb === 'disable' || verb === 'deactivate' || verb === 'off'
-    if (!enable && !disable) return `@${caller} usage: !module <enable|disable> <${modules.NAMES.join('|')}>`
+    if (!enable && !disable) return `@${caller} usage: !module (enable|disable) (${modules.NAMES.join('|')})`
     const key = String(name).toLowerCase()
     if (!modules.setEnabled(key, enable)) {
       return `@${caller} unknown module "${name}". Options: ${modules.NAMES.join(', ')}`
