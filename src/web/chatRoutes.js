@@ -651,6 +651,7 @@ const CHATPOP_HTML = `<!DOCTYPE html>
     border: 1px solid var(--border); background: var(--bg); color: var(--text);
   }
   .send-form input:focus { outline: none; border-color: var(--accent); }
+  .send-form[data-platform="kick"] input:focus { border-color: #53fc18; }
   .send-form button {
     font: inherit; font-size: 12px; font-weight: 600; padding: 7px 12px;
     border-radius: 6px; border: none; cursor: pointer; color: #fff; flex-shrink: 0;
