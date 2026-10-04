@@ -36,6 +36,8 @@ const MOD_STYLE = `
   .hl-label{display:block;font-size:11px;font-weight:600;margin-bottom:2px;letter-spacing:.3px}
   .hl-reward .hl-label{color:#9146ff}
   .hl-milestone .hl-label{color:#00b884}
+  .day-sep{display:flex;align-items:center;gap:12px;padding:10px 0;color:var(--muted);font-size:12px;font-weight:600;letter-spacing:.3px}
+  .day-sep::before,.day-sep::after{content:'';flex:1;height:1px;background:var(--border)}
   .mod-btn{font:inherit;font-size:11px;font-weight:600;padding:2px 7px;border-radius:4px;
     border:1px solid var(--border);background:var(--surface-2);color:var(--muted);cursor:pointer;white-space:nowrap}
   .mod-btn:hover{border-color:var(--accent);color:var(--text)}
@@ -124,6 +126,33 @@ const CHAT_JS = `
     return '<span class="chat-ts">' + h + ':' + m + '</span>';
   }
 
+  var DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+  var lastDateKey = '';
+
+  function ordinal(n) {
+    var s = ['th','st','nd','rd'];
+    var v = n % 100;
+    return n + (s[(v - 20) % 10] || s[v] || s[0]);
+  }
+
+  function dayLabel(ts) {
+    var d = new Date(ts);
+    return DAYS[d.getDay()] + ', ' + ordinal(d.getDate()) + ' of ' + MONTHS[d.getMonth()] + ', ' + d.getFullYear();
+  }
+
+  function maybeDaySep(ts) {
+    if (!ts) return null;
+    var d = new Date(ts);
+    var key = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+    if (key === lastDateKey) return null;
+    lastDateKey = key;
+    var el = document.createElement('div');
+    el.className = 'day-sep';
+    el.textContent = dayLabel(ts);
+    return el;
+  }
+
   function renderMsg(entry) {
     if (entry.platform === 'system') {
       var sys = document.createElement('div');
@@ -162,6 +191,8 @@ const CHAT_JS = `
   }
 
   function addMsg(entry) {
+    var sep = maybeDaySep(entry.timestamp);
+    if (sep) box.appendChild(sep);
     box.appendChild(renderMsg(entry));
     while (box.childElementCount > 500) box.removeChild(box.firstChild);
     if (pinned) box.scrollTop = box.scrollHeight;
@@ -740,6 +771,33 @@ function fmtTime(ts) {
   return '<span class="chat-ts">' + h + ':' + m + '</span>';
 }
 
+var DAYS = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+var MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+var lastDateKey = '';
+
+function ordinal(n) {
+  var s = ['th','st','nd','rd'];
+  var v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function dayLabel(ts) {
+  var d = new Date(ts);
+  return DAYS[d.getDay()] + ', ' + ordinal(d.getDate()) + ' of ' + MONTHS[d.getMonth()] + ', ' + d.getFullYear();
+}
+
+function maybeDaySep(ts) {
+  if (!ts) return null;
+  var d = new Date(ts);
+  var key = d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate();
+  if (key === lastDateKey) return null;
+  lastDateKey = key;
+  var el = document.createElement('div');
+  el.className = 'day-sep';
+  el.textContent = dayLabel(ts);
+  return el;
+}
+
 function renderMsg(entry) {
   if (entry.platform === 'system') {
     var sys = document.createElement('div');
@@ -769,6 +827,8 @@ function renderMsg(entry) {
 }
 
 function addMsg(entry) {
+  var sep = maybeDaySep(entry.timestamp);
+  if (sep) box.appendChild(sep);
   box.appendChild(renderMsg(entry));
   while (box.childElementCount > 500) box.removeChild(box.firstChild);
   if (pinned) box.scrollTop = box.scrollHeight;
